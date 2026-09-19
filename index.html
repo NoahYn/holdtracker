@@ -647,20 +647,31 @@ const MODEL_URL = m => `https://storage.googleapis.com/mediapipe-models/pose_lan
 
 async function initModel(){
   setStatus("모델 로딩 중…", "load");
+  const build = async (fileset, delegate) => PoseLandmarker.createFromOptions(fileset, {
+    baseOptions:{ modelAssetPath: MODEL_URL(S.model), delegate },
+    runningMode:"VIDEO", numPoses:1,
+    minPoseDetectionConfidence:0.5, minPosePresenceConfidence:0.5, minTrackingConfidence:0.5,
+    outputSegmentationMasks:false
+  });
   try{
     const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm");
-    if(landmarker){ landmarker.close(); landmarker=null; }
-    landmarker = await PoseLandmarker.createFromOptions(fileset, {
-      baseOptions:{ modelAssetPath: MODEL_URL(S.model), delegate:"GPU" },
-      runningMode:"VIDEO", numPoses:1,
-      minPoseDetectionConfidence:0.5, minPosePresenceConfidence:0.5, minTrackingConfidence:0.5,
-      outputSegmentationMasks:false
-    });
+    if(landmarker){ try{ landmarker.close(); }catch(e){} landmarker=null; }
+    let delegateUsed = "GPU";
+    try{
+      landmarker = await build(fileset, "GPU");
+    }catch(gpuErr){
+      // 일부 모바일 별로는 WebGL 델리게이트가 안 도는 경우가 있어 CPU로 재시도
+      console.warn("GPU delegate 실패, CPU로 폴백:", gpuErr);
+      landmarker = await build(fileset, "CPU"); delegateUsed = "CPU";
+    }
     drawUtils = new DrawingUtils(ctx);
-    setStatus("모델 준비 완료 ("+S.model+")","ok");
+    setStatus(`모델 준비 완료 (${S.model}·${delegateUsed})`,"ok");
     return true;
   }catch(e){
-    console.error(e); setStatus("모델 로딩 실패: "+e.message,"err"); return false;
+    console.error(e);
+    setStatus("모델 로딩 실패: "+(e && e.message ? e.message : e),"err");
+    toast("모델 로딩 실패 · 설정에서 '가벼움'으로 바꿔 보세요");
+    return false;
   }
 }
 function setStatus(t, kind){
