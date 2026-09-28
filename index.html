@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<title>HoldTracker — 칼리스테닉스 정적 홀드 자동 측정</title>
-<meta name="description" content="카메라로 플란체·프론트 레버 등 정적 홀드를 자동 인식해 자세 품질을 평가하고 유지 시간을 기록합니다." />
-<meta name="theme-color" content="#0c0e13" />
+<title>HoldTracker · 홀드 + 렙 측정</title>
+<meta name="description" content="한 카메라 파이프라인으로 칼리스테닉스 홀드와 스쿼트·푸시업·풀업 반복을 실험적으로 측정합니다." />
+<meta name="theme-color" content="#0b0d12" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,1052 +14,218 @@
 <link rel="apple-touch-icon" href="./icon-192.png" />
 <link rel="icon" href="./icon-192.png" />
 <style>
-  :root{
-    --bg:#0c0e13; --panel:#151922; --panel2:#1c212c; --line:#262c38;
-    --txt:#e6eaf2; --dim:#8b93a7; --acc:#4ade80; --warn:#fbbf24; --bad:#f87171; --blue:#60a5fa;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Pretendard,"Apple SD Gothic Neo",sans-serif}
-  header{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
-  header h1{font-size:16px;margin:0;letter-spacing:-.3px}
-  header .sub{color:var(--dim);font-size:12px}
-  .tabs{margin-left:auto;display:flex;gap:6px}
-  .tabs button{background:var(--panel2);color:var(--dim);border:1px solid var(--line);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
-  .tabs button.on{background:var(--acc);color:#07120c;border-color:var(--acc);font-weight:600}
-  main{padding:16px;max-width:1500px;margin:0 auto}
-  .wrap{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.9fr);gap:16px}
-  @media(max-width:1050px){.wrap{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
-  .card h2{margin:0 0 10px;font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase}
-  .stage{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9}
-  .stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-  .stage video{opacity:.99}
-  .mirror{transform:scaleX(-1)}
-  .hud{position:absolute;left:12px;top:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none;gap:10px}
-  .timer{font-variant-numeric:tabular-nums;font-size:54px;font-weight:700;line-height:1;text-shadow:0 2px 14px #000}
-  .timer small{font-size:20px;opacity:.7}
-  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:#0008;border:1px solid #fff2}
-  .statecol{text-align:right}
-  .scorebig{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 2px 14px #000}
-  .banner{position:absolute;left:0;right:0;bottom:0;padding:8px 12px;background:linear-gradient(to top,#000c,#0000);font-size:13px;color:#dfe5f0}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
-  button.btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:9px 14px;border-radius:9px;cursor:pointer;font-size:13px}
-  button.btn:hover{border-color:#3a4356}
-  button.primary{background:var(--acc);color:#07120c;border-color:var(--acc);font-weight:700}
-  button.danger{background:#3b1d1d;border-color:#5b2a2a;color:#fca5a5}
-  select,input[type=text],input[type=number]{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:7px 9px;font-size:13px}
-  label.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
-  label.row:last-child{border-bottom:0}
-  label.row span.k{color:var(--dim);font-size:13px}
-  input[type=range]{width:150px}
-  .bars{display:flex;flex-direction:column;gap:7px;margin-top:4px}
-  .bar{display:grid;grid-template-columns:96px 1fr 52px;align-items:center;gap:8px;font-size:12px}
-  .bar .t{color:var(--dim)}
-  .bar .track{height:8px;background:var(--panel2);border-radius:99px;overflow:hidden}
-  .bar .fill{height:100%;background:var(--acc);width:0%;transition:width .12s linear}
-  .bar .v{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:left}
-  th{color:var(--dim);font-weight:600;font-size:12px}
-  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
-  .pill{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
-  .hint{color:var(--dim);font-size:12px;line-height:1.7}
-  .hint b{color:var(--txt)}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
-  .kpi .l{color:var(--dim);font-size:11px}
-  .kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
-  .hidden{display:none!important}
-  /* ---------- 모바일 ---------- */
-  @media(max-width:760px){
-    header{padding:9px 12px;gap:8px;flex-wrap:wrap}
-    header h1{font-size:15px}
-    header .sub{display:none}
-    .status{font-size:11px;order:3;width:100%;margin:0}
-    .tabs{margin-left:auto}
-    .tabs button{padding:7px 13px}
-    main{padding:10px}
-    .wrap{gap:12px}
-    .card{padding:11px;border-radius:12px}
-    .timer{font-size:42px}
-    .scorebig{font-size:27px}
-    .hud{left:9px;top:9px;right:9px}
-    button.btn{padding:11px 13px;font-size:14px}
-    select,input[type=text],input[type=number]{padding:10px 9px;font-size:14px}
-    label.row{flex-wrap:wrap}
-    input[type=range]{width:120px}
-    .bar{grid-template-columns:70px 1fr 46px}
-    .grid2{gap:8px}
-    .kpi .v{font-size:19px}
-    table{font-size:12px}
-    th,td{padding:6px 4px}
-    #allTable th:nth-child(5),#allTable td:nth-child(5),
-    #allTable th:nth-child(7),#allTable td:nth-child(7){display:none}
-  }
-  .stage:fullscreen{aspect-ratio:auto!important;width:100vw;height:100vh;border-radius:0}
-  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;background:var(--acc);color:#07120c;font-weight:700;padding:10px 18px;border-radius:99px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50}
-  #toast.on{opacity:1}
-  .status{font-size:12px;color:var(--dim);margin-left:auto}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:99px;background:#555;margin-right:6px;vertical-align:middle}
-  .dot.on{background:var(--acc)}
-  .dot.err{background:var(--bad)}
+:root{--bg:#0b0d12;--panel:#141821;--panel2:#1a202b;--panel3:#202735;--line:#2a3240;--txt:#eef1f7;--dim:#9099ad;--acc:#57df8b;--warn:#f8c65b;--bad:#fb7777;--blue:#6da9ff;--violet:#ad8cff;--shadow:0 18px 55px #0005}
+*{box-sizing:border-box}html{color-scheme:dark}body{margin:0;background:radial-gradient(circle at 50% -20%,#182032 0,#0b0d12 38%);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Pretendard,"Apple SD Gothic Neo",sans-serif;min-height:100vh}
+button,select,input{font:inherit}button{touch-action:manipulation}header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;padding:11px max(14px,env(safe-area-inset-right)) 11px max(14px,env(safe-area-inset-left));border-bottom:1px solid #ffffff12;background:#0e1118e8;backdrop-filter:blur(16px)}
+.brand{display:flex;align-items:center;gap:10px}.logo{width:31px;height:31px;border-radius:10px;background:linear-gradient(145deg,var(--acc),#36a9ff);box-shadow:0 0 24px #57df8b33;display:grid;place-items:center;color:#07110b;font-weight:900}.brand h1{font-size:15px;margin:0;letter-spacing:-.2px}.sub{font-size:11px;color:var(--dim)}.status{margin-left:auto;color:var(--dim);font-size:11px;white-space:nowrap}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#596171;margin-right:6px}.dot.on{background:var(--acc);box-shadow:0 0 10px #57df8b88}.dot.err{background:var(--bad)}
+.tabs{display:flex;gap:4px;background:#090b0f;border:1px solid var(--line);padding:3px;border-radius:11px}.tabs button,.seg button{border:0;color:var(--dim);background:transparent;border-radius:8px;padding:7px 12px;cursor:pointer}.tabs button.on,.seg button.on{background:var(--panel3);color:var(--txt);box-shadow:inset 0 0 0 1px #ffffff0e}.tabs button.on{color:var(--acc)}
+main{max-width:1450px;margin:auto;padding:15px max(12px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}.wrap{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(310px,.78fr);gap:14px}.stack{display:flex;flex-direction:column;gap:14px}.card{background:linear-gradient(155deg,#161b25,#12161e);border:1px solid var(--line);border-radius:16px;padding:13px;box-shadow:0 8px 30px #0002}.card h2{margin:0 0 10px;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.65px}.topline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.topline h2{margin:0}.experimental{font-size:10px;color:var(--warn);border:1px solid #f8c65b55;background:#f8c65b12;border-radius:99px;padding:3px 8px}.seg{display:flex;background:#090b0f;border:1px solid var(--line);padding:3px;border-radius:12px}.seg button{flex:1;font-weight:700}.seg button.on[data-mode="hold"]{color:var(--acc)}.seg button.on[data-mode="reps"]{color:var(--blue)}
+.stack,.card,.wrap,.modeControls{min-width:0}.stage{width:100%;min-width:0;position:relative;background:#020304;border:1px solid #ffffff12;border-radius:14px;overflow:hidden;aspect-ratio:16/9;box-shadow:var(--shadow)}.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.stage video{opacity:.98}.mirror{transform:scaleX(-1)}.hud{position:absolute;inset:11px;display:flex;justify-content:space-between;gap:12px;pointer-events:none}.hudRight{text-align:right}.big{font-size:clamp(44px,8vw,76px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;text-shadow:0 3px 20px #000}.big small{font-size:.28em;opacity:.7}.secondary{font-size:clamp(24px,4vw,34px);font-weight:750;font-variant-numeric:tabular-nums;text-shadow:0 3px 16px #000}.badge{display:inline-flex;align-items:center;max-width:min(72vw,520px);padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;background:#030405bb;border:1px solid #ffffff20;backdrop-filter:blur(5px)}.banner{position:absolute;left:0;right:0;bottom:0;padding:28px 12px 9px;background:linear-gradient(to top,#000e,#0000);font-size:12px;color:#e7ebf4;pointer-events:none}.frameWarning{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(88%,530px);padding:12px 14px;border-radius:12px;background:#241b0eea;border:1px solid #f8c65b88;color:#fff1cc;text-align:center;font-weight:700;box-shadow:0 10px 36px #0009;display:none}.frameWarning.on{display:block}.flash{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .15s}.flash.ok{background:#57df8b20;opacity:1}.flash.bad{background:#fb77772b;opacity:1}.norep{position:absolute;left:50%;top:43%;transform:translate(-50%,-50%);font-size:clamp(32px,7vw,50px);font-weight:900;color:var(--bad);text-shadow:0 4px 20px #000;opacity:0;transition:opacity .15s}.norep.on{opacity:1}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:11px}.controls.tight{margin:0}.btn,select,input[type=number]{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:9px 12px}.btn{cursor:pointer}.btn:hover{border-color:#465267}.btn:disabled{opacity:.42;cursor:not-allowed}.primary{background:var(--acc);border-color:var(--acc);color:#06120a;font-weight:800}.danger{background:#351b20;border-color:#59272d;color:#ffaaaa}.blue{background:#17345b;border-color:#29588f;color:#bdd7ff}.modeControls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.modeControls select{min-width:138px}details.capture{margin-top:10px;border-top:1px solid var(--line);padding-top:9px}details.capture summary{color:var(--dim);font-size:12px;cursor:pointer;user-select:none}.captureGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.field{display:flex;flex-direction:column;gap:5px;background:#0c0f15;border:1px solid var(--line);padding:9px;border-radius:10px}.field>span{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px}.field select,.field input{width:100%}.zoomRow{display:flex;align-items:center;gap:8px}.zoomRow input{min-width:0;flex:1}.zoomValue{font-variant-numeric:tabular-nums;color:var(--dim);min-width:42px;text-align:right}.hidden{display:none!important}
+.bars{display:flex;flex-direction:column;gap:7px}.bar{display:grid;grid-template-columns:minmax(84px,1.15fr) minmax(100px,2fr) 62px;align-items:center;gap:8px;font-size:12px}.barTitle{display:flex;align-items:center;gap:6px;min-width:0}.barTitle span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.priority{font-size:9px;padding:1px 5px;border:1px solid var(--line);border-radius:99px;color:var(--dim);white-space:nowrap}.priority.required{color:#ffd486;border-color:#f8c65b55}.track{height:8px;background:#0b0e13;border-radius:99px;overflow:hidden}.fill{height:100%;border-radius:99px;transition:width .1s linear}.barValue{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}.statusMark{font-weight:800}.statusMark.ok{color:var(--acc)}.statusMark.wait{color:var(--warn)}.hint{color:var(--dim);font-size:12px;line-height:1.7}.hint b{color:var(--txt)}.honesty{padding:10px 11px;background:#101722;border:1px solid #294367;border-radius:11px;color:#b7c9e6}.warnText{color:var(--warn)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kpi{background:#0d1118;border:1px solid var(--line);border-radius:12px;padding:10px}.kpi .l{font-size:10px;color:var(--dim)}.kpi .v{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}.tagOk{color:var(--acc)}.tagBad{color:var(--bad)}.tagBlue{color:var(--blue)}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:7px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{font-size:10px;color:var(--dim);font-weight:650;text-transform:uppercase}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}.pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:99px;background:var(--panel3);border:1px solid var(--line);color:var(--dim)}.empty{padding:20px 8px;text-align:center;color:var(--dim);font-size:12px}.scroll{overflow:auto}.historySwitch{margin-bottom:12px;max-width:310px}label.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}label.row:last-child{border:0}label.row .k{color:var(--dim);font-size:12px;max-width:65%}input[type=range]{accent-color:var(--acc);max-width:160px}.logicBlock{padding:10px 0;border-bottom:1px solid var(--line)}.logicBlock:last-child{border:0}.stage:fullscreen{width:100vw;height:100vh;aspect-ratio:auto!important;border-radius:0}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--acc);color:#06120a;font-weight:800;padding:10px 17px;border-radius:99px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;box-shadow:0 10px 30px #0008}#toast.on{opacity:1}
+@media(max-width:980px){.wrap{grid-template-columns:minmax(0,1fr)}.rightRail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.rightRail .wide{grid-column:1/-1}}
+@media(max-width:700px){header{flex-wrap:wrap;padding-top:8px}.brand .sub{display:none}.status{order:3;width:100%;margin:0}.tabs{margin-left:auto}main{padding-top:10px}.card{padding:10px;border-radius:14px}.topline{align-items:flex-start}.modeTop{width:100%}.stage{border-radius:12px}.hud{inset:8px}.badge{padding:3px 8px}.controls>.btn,.controls>select{flex-grow:1;text-align:center}.modeControls{width:100%}.modeControls select{flex:1;min-width:0}.captureGrid{grid-template-columns:1fr}.bar{grid-template-columns:minmax(78px,1fr) minmax(80px,1.5fr) 56px;gap:6px}.rightRail{display:flex}.rightRail{flex-direction:column}.rightRail>*{width:100%}.grid2{gap:7px}.kpi .v{font-size:19px}table{font-size:11px}#allTable th:nth-child(5),#allTable td:nth-child(5),#allTable th:nth-child(7),#allTable td:nth-child(7){display:none}.desktopOnly{display:none!important}}
+@media(orientation:portrait) and (max-width:700px){.landscapeOnly{display:block}}
+.cameraGuide{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:radial-gradient(ellipse at center,#14211e 0%,#080d10 72%);color:#e2ebe7}.cameraGuide svg{width:240px;max-width:48%;height:110px}.cameraGuide strong{font-size:18px;font-weight:600}.cameraGuide span,.cameraGuide small{font-size:12px;color:#96a6a0}.cameraGuide small{font-size:10px;opacity:.65}.stage:not(.live) .hud{opacity:.3}.stage.live .cameraGuide{display:none}.trendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px}.trendTile{padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}.trendTile strong{font-size:20px;display:block}.trendTile svg{width:100%;height:42px;display:block;margin:10px 0}.trendTile small{color:var(--dim)}.zoomHelp{margin:10px 0 0;font-size:12px;color:var(--dim);line-height:1.7}@media(max-width:600px){.cameraGuide{gap:4px}.cameraGuide svg{height:75px}.cameraGuide strong{font-size:15px}.cameraGuide span{font-size:10px}.cameraGuide small{display:none}.btn,select{min-height:44px}.stage{min-height:235px}.banner{font-size:11px}.trendGrid{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
 <header>
-  <h1>HoldTracker</h1>
-  <span class="sub">칼리스테닉스 정적 홀드 자동 인식 · 타이머 · 진척도</span>
-  <span class="status"><span class="dot" id="dotModel"></span><span id="statusText">모델 미로딩</span></span>
-  <div class="tabs">
-    <button id="tabMeasure" class="on">측정</button>
-    <button id="tabHistory">기록</button>
-    <button id="tabSettings">설정</button>
-  </div>
+  <div class="brand"><div class="logo">H</div><div><h1>HoldTracker</h1><div class="sub">홀드 + 반복 동작 측정</div></div></div>
+  <span class="status"><span class="dot" id="dotModel"></span><span id="statusText">모델 준비 전</span></span>
+  <nav class="tabs"><button id="tabMeasure" class="on">측정</button><button id="tabHistory">기록</button><button id="tabSettings">설정</button></nav>
 </header>
-
 <main>
-  <!-- ================= 측정 ================= -->
-  <section id="viewMeasure" class="wrap">
-    <div>
-      <div class="card">
-        <div class="stage" id="stage">
-          <video id="video" playsinline muted></video>
-          <canvas id="overlay"></canvas>
-          <div class="hud">
-            <div>
-              <div class="badge" id="moveLabel">대기 중</div>
-              <div class="timer" id="timer">0.0<small>s</small></div>
-              <div class="badge" id="stateLabel" style="margin-top:6px">IDLE</div>
-            </div>
-            <div class="statecol">
-              <div class="scorebig" id="scoreBig">--</div>
-              <div class="badge" id="pbLabel">PB --</div>
-            </div>
-          </div>
-          <div class="banner" id="banner">카메라를 옆에서(측면) 잡고 전신이 다 보이게 두면 인식이 가장 정확해요.</div>
-        </div>
-        <div class="controls">
-          <button class="btn primary" id="btnStart">카메라 시작</button>
-          <button class="btn" id="btnStop" disabled>정지</button>
-          <button class="btn" id="btnFacing" title="전면/후면 전환">후면 카메라</button>
-          <button class="btn" id="btnFull" title="전체화면">전체화면</button>
-          <label class="btn" style="cursor:pointer">영상 파일 분석<input id="fileInput" type="file" accept="video/*" class="hidden"></label>
-          <select id="camSelect" title="카메라 선택"><option value="">카메라 자동</option></select>
-          <select id="lockSelect" title="동작 고정">
-            <option value="auto">자동 인식</option>
-            <option value="PLANCHE">플란체</option>
-            <option value="FRONT_LEVER">프론트 레버</option>
-            <option value="BACK_LEVER">백 레버</option>
-            <option value="L_SIT">L-sit</option>
-            <option value="HANDSTAND">핸드스탠드</option>
-          </select>
-          <button class="btn" id="btnMirror">좌우반전</button>
-          <button class="btn danger" id="btnDiscard">현재 시도 취소</button>
-        </div>
+<section id="viewMeasure" class="wrap">
+  <div class="stack">
+    <div class="card">
+      <div class="topline modeTop"><div class="seg" id="measureMode"><button class="on" data-mode="hold">홀드</button><button data-mode="reps">반복</button></div><span class="experimental" id="experimentLabel">포즈 추정 기반 실험 기능</span></div>
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted></video><canvas id="overlay"></canvas>
+        <div id="cameraGuide" class="cameraGuide"><svg viewBox="0 0 240 110" aria-hidden="true"><path d="M20 32V14h24M196 14h24v18M20 78v18h24M196 96h24V78" fill="none" stroke="#57df8b" stroke-width="2"/><circle cx="84" cy="32" r="9" fill="none" stroke="#83929c" stroke-width="3"/><path d="M84 43v35h85M84 52l-15 29M84 78h-9" fill="none" stroke="#a8b5bf" stroke-width="4" stroke-linecap="round"/><path d="M55 91h132" stroke="#34424b" stroke-dasharray="4 5"/></svg><strong>동작 전체가 들어오게</strong><span>가로 거치 · 측면 촬영 · 발끝까지 여유 있게</span><small>영상은 기기 안에서만 처리됩니다</small></div><div class="flash" id="flash"></div><div class="norep" id="norepTxt">NO REP</div>
+        <div class="hud"><div><div class="badge" id="moveLabel">카메라 대기</div><div class="big" id="primaryValue">0.0<small>s</small></div><div class="badge" id="stateLabel" style="margin-top:6px">IDLE</div></div><div class="hudRight"><div class="secondary" id="secondaryValue">--</div><div class="badge" id="secondaryBadge">PB --</div></div></div>
+        <div class="frameWarning" id="frameWarning"></div><div class="banner" id="banner">측면에서 손·발·머리가 모두 보이도록 전신을 프레임에 넣어 주세요.</div>
       </div>
-
-      <div class="card" style="margin-top:14px">
-        <h2>실시간 자세 평가</h2>
-        <div class="bars" id="bars"></div>
-        <div class="hint" id="metricHint" style="margin-top:10px"></div>
+      <div class="controls">
+        <button class="btn primary" id="btnStart">카메라 시작</button><button class="btn" id="btnStop" disabled>정지</button>
+        <div class="modeControls" id="holdControls"><select id="lockSelect" title="홀드 동작"><option value="auto">홀드 자동 인식</option><option value="PLANCHE">플란체</option><option value="FRONT_LEVER">프론트 레버</option><option value="BACK_LEVER">백 레버</option><option value="L_SIT">L-sit</option><option value="HANDSTAND">핸드스탠드</option></select><button class="btn danger" id="btnDiscard">현재 시도 취소</button></div>
+        <div class="modeControls hidden" id="repControls"><select id="repMove"><option value="AIR_SQUAT">에어 스쿼트</option><option value="PUSH_UP">푸시업</option><option value="PULL_UP">풀업</option></select><select id="repWorkout"><option value="free">자유 세션</option><option value="amrap">AMRAP</option><option value="fortime">For Time</option></select><input id="repTarget" type="number" min="1" value="5" style="width:72px"><span class="hint" id="repTargetUnit">-</span><button class="btn" id="btnRepReset">세션 새로 시작</button></div>
       </div>
+      <details class="capture"><summary>카메라 · 영상 · 화면 설정</summary><div class="captureGrid">
+        <label class="field"><span>렌즈 선택</span><select id="camSelect"><option value="">자동 선택</option></select></label>
+        <div class="field"><span>카메라 방향</span><button class="btn" id="btnFacing">후면으로 전환</button></div>
+        <label class="field" id="zoomField"><span>카메라 줌</span><div class="zoomRow"><input type="range" id="zoomSlider" disabled><span class="zoomValue" id="zoomValue">미지원</span></div></label>
+        <div class="field"><span>입력 / 보기</span><div class="controls tight"><label class="btn" style="cursor:pointer;flex:1;text-align:center">영상 파일<input id="fileInput" type="file" accept="video/*" class="hidden"></label><button class="btn" id="btnMirror">좌우반전</button><button class="btn" id="btnFull">전체화면</button></div></div>
+        <div class="field"><span>현재 캡처</span><div class="hint" id="captureDetails">카메라를 시작하면 실제 해상도와 렌즈 기능을 표시합니다.</div></div>
+        <div class="field"><span>프레이밍 상태</span><div class="hint" id="framingDetails">포즈가 잡히면 손·발·머리 가시성을 확인합니다.</div></div>
+      </div><p class="zoomHelp">전면 0.5×는 카메라와 브라우저가 지원할 때만 가능합니다. 실제 지원 범위만 표시하며, 화면 축소로 시야를 넓히지는 않습니다. 발이 잘리면 가로 거치나 후면 렌즈를 시도하세요. 광각 렌즈가 목록에 없다면 기본 카메라로 촬영한 영상을 불러올 수 있습니다.</p></details>
     </div>
+    <div class="card"><div class="topline"><h2 id="analysisTitle">실시간 자세 평가</h2><span class="hint" id="freshnessText">새 프레임 대기</span></div><div class="bars" id="bars"></div><div class="empty" id="barsEmpty">카메라를 시작하면 측정값과 기준 달성 상태가 여기에 표시됩니다.</div><div class="hint" id="metricHint" style="margin-top:10px"></div></div>
+  </div>
+  <aside class="stack rightRail">
+    <div class="card"><h2 id="summaryTitle">오늘 홀드 요약</h2><div class="grid2"><div class="kpi"><div class="l" id="kpiL1">최고 홀드</div><div class="v" id="kpi1">-</div></div><div class="kpi"><div class="l" id="kpiL2">총 홀드 시간</div><div class="v" id="kpi2">-</div></div><div class="kpi"><div class="l" id="kpiL3">시도 횟수</div><div class="v" id="kpi3">-</div></div><div class="kpi"><div class="l" id="kpiL4">평균 자세 점수</div><div class="v" id="kpi4">-</div></div></div></div>
+    <div class="card wide"><h2 id="sessionTitle">이번 홀드 세션</h2><div class="scroll"><table id="sessionTable"><thead><tr><th>시각</th><th>동작</th><th class="num">시간</th><th class="num">점수</th><th></th></tr></thead><tbody></tbody></table><table id="repLiveTable" class="hidden"><thead><tr><th class="num">#</th><th class="num">소요</th><th>판정</th><th>근거</th></tr></thead><tbody></tbody></table></div><div class="empty" id="sessionEmpty">아직 저장된 홀드가 없습니다. 기준 점수 이상을 최소 시간 동안 유지하면 자동 저장됩니다.</div></div>
+    <div class="card"><h2>측정 안내</h2><div class="hint" id="tips"><b>홀드</b>는 측면 전신 구도가 가장 안정적입니다.<br>손·발·머리가 잘리거나 주요 랜드마크가 흐리면 측정을 일시정지합니다.<br><span class="warnText">세로 화면에서는 카메라를 가로로 돌리면 전신 확보가 쉬워집니다.</span></div></div>
+    <div class="card"><h2>판정 범위</h2><div class="hint honesty" id="honesty">AI 포즈 좌표로 각도와 상대 위치를 추정합니다. 실제 접촉, 기구 위치, 심판 기준을 직접 감지하지는 않습니다.</div></div>
+  </aside>
+</section>
 
-    <div>
-      <div class="card">
-        <h2>오늘 요약</h2>
-        <div class="grid2">
-          <div class="kpi"><div class="l">최고 홀드(오늘)</div><div class="v" id="kpiBest">-</div></div>
-          <div class="kpi"><div class="l">총 홀드 시간</div><div class="v" id="kpiTotal">-</div></div>
-          <div class="kpi"><div class="l">시도 횟수</div><div class="v" id="kpiCount">-</div></div>
-          <div class="kpi"><div class="l">평균 자세 점수</div><div class="v" id="kpiScore">-</div></div>
-        </div>
-      </div>
+<section id="viewHistory" class="hidden">
+  <div class="seg historySwitch" id="historyMode"><button class="on" data-history="hold">홀드 기록</button><button data-history="reps">반복 세션</button></div>
+  <div id="holdHistory" class="wrap">
+    <div class="stack"><div class="card"><h2>홀드 진척도</h2><div class="controls tight" style="margin-bottom:10px"><select id="histMove"><option value="PLANCHE">플란체</option><option value="FRONT_LEVER">프론트 레버</option><option value="BACK_LEVER">백 레버</option><option value="L_SIT">L-sit</option><option value="HANDSTAND">핸드스탠드</option></select><select id="histVar"><option value="all">모든 변형</option></select><select id="histRange"><option value="30">최근 30일</option><option value="90">최근 90일</option><option value="365">최근 1년</option><option value="9999">전체</option></select></div><canvas id="chart" height="260" style="width:100%;background:#0d1118;border-radius:11px"></canvas><div class="hint" style="margin-top:8px">막대는 그날 최고 홀드, 선은 상위 3회 평균입니다. 점 색은 평균 자세 점수입니다.</div></div><div class="card"><h2>항목별 변화</h2><div id="axisTrends" class="trendGrid"></div><p class="hint">동일 변형끼리 비교하세요. 항목 점수는 규칙 기반 추정이며, 새 버전에서 저장한 측정부터 표시됩니다.</p></div><div class="card"><h2>전체 홀드 기록</h2><div class="scroll"><table id="allTable"><thead><tr><th>날짜</th><th>동작</th><th>변형</th><th class="num">시간</th><th class="num">클린</th><th class="num">점수</th><th>주요 감점</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="allEmpty">저장된 홀드 기록이 없습니다.</div></div></div>
+    <div class="stack"><div class="card"><h2>개인 기록 (PB)</h2><table id="pbTable"><thead><tr><th>동작</th><th>변형</th><th class="num">PB</th><th class="num">최근</th><th class="num">시도</th></tr></thead><tbody></tbody></table></div><div class="card"><h2>데이터</h2><div class="controls tight"><button class="btn" id="btnExportJson">JSON 내보내기</button><button class="btn" id="btnExportCsv">CSV 내보내기</button><label class="btn" style="cursor:pointer">가져오기<input id="importInput" type="file" accept="application/json" class="hidden"></label><button class="btn" id="btnDemo">홀드 데모</button><button class="btn danger" id="btnWipe">전체 기록 삭제</button></div><div class="hint" style="margin-top:10px">홀드와 반복 세션은 이 브라우저 localStorage에 함께 저장됩니다.</div></div></div>
+  </div>
+  <div id="repHistory" class="hidden"><div class="card"><div class="topline"><h2>저장된 반복 세션</h2><span class="hint">각 렙의 프록시 판정과 소요 시간 포함</span></div><div class="scroll"><table id="repHistoryTable"><thead><tr><th>날짜</th><th>동작</th><th>형식</th><th class="num">유효</th><th class="num">NO REP</th><th class="num">시간</th><th class="num">평균 렙</th><th></th></tr></thead><tbody></tbody></table></div><div class="empty" id="repHistoryEmpty">저장된 반복 세션이 없습니다. 첫 렙이 판정되는 순간부터 세션이 자동 보존됩니다.</div></div></div>
+</section>
 
-      <div class="card" style="margin-top:14px">
-        <h2>이번 세션 기록</h2>
-        <table id="sessionTable"><thead><tr>
-          <th>시각</th><th>동작</th><th class="num">시간</th><th class="num">점수</th><th></th>
-        </tr></thead><tbody></tbody></table>
-        <div class="hint" id="sessionEmpty">아직 기록된 홀드가 없어요. 기본값으로 <b>자세 점수 72점 이상</b>을 <b>3초 이상</b> 유지하면 자동 저장됩니다.</div>
-      </div>
-
-      <div class="card" style="margin-top:14px">
-        <h2>인식 팁</h2>
-        <div class="hint">
-          · 카메라는 <b>정확히 옆</b>(측면), 삼각대 높이는 허리~가슴, 수평 유지<br>
-          · 전신(손끝~발끝)이 프레임 안에 다 들어와야 함<br>
-          · 밝은 배경 + 몸 실루엣이 구분되는 옷<br>
-          · 카메라가 기울었으면 설정 → <b>수평 보정</b>으로 각도를 맞추세요<br>
-          · 자동 인식이 흔들리면 위에서 <b>동작 고정</b>을 쓰는 게 정확합니다
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= 기록 ================= -->
-  <section id="viewHistory" class="hidden">
-    <div class="wrap">
-      <div>
-        <div class="card">
-          <h2>진척도</h2>
-          <div class="controls" style="margin:0 0 10px">
-            <select id="histMove">
-              <option value="PLANCHE">플란체</option>
-              <option value="FRONT_LEVER">프론트 레버</option>
-              <option value="BACK_LEVER">백 레버</option>
-              <option value="L_SIT">L-sit</option>
-              <option value="HANDSTAND">핸드스탠드</option>
-            </select>
-            <select id="histVar"><option value="all">모든 변형</option></select>
-            <select id="histRange">
-              <option value="30">최근 30일</option>
-              <option value="90">최근 90일</option>
-              <option value="365">최근 1년</option>
-              <option value="9999">전체</option>
-            </select>
-          </div>
-          <canvas id="chart" height="260" style="width:100%;background:var(--panel2);border-radius:10px"></canvas>
-          <div class="hint" style="margin-top:8px">막대 = 그날의 <b>최고 홀드</b>, 선 = 그날 <b>상위 3회 평균</b>. 점 색은 평균 자세 점수(초록=좋음).</div>
-        </div>
-        <div class="card" style="margin-top:14px">
-          <h2>전체 기록</h2>
-          <table id="allTable"><thead><tr>
-            <th>날짜</th><th>동작</th><th>변형</th><th class="num">시간</th><th class="num">클린</th><th class="num">점수</th><th>주요 감점</th><th></th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-      </div>
-      <div>
-        <div class="card">
-          <h2>개인 기록 (PB)</h2>
-          <table id="pbTable"><thead><tr><th>동작</th><th>변형</th><th class="num">PB</th><th class="num">최근</th><th class="num">시도</th></tr></thead><tbody></tbody></table>
-        </div>
-        <div class="card" style="margin-top:14px">
-          <h2>데이터</h2>
-          <div class="controls" style="margin:0">
-            <button class="btn" id="btnExportJson">JSON 내보내기</button>
-            <button class="btn" id="btnExportCsv">CSV 내보내기</button>
-            <label class="btn" style="cursor:pointer">가져오기<input id="importInput" type="file" accept="application/json" class="hidden"></label>
-            <button class="btn" id="btnDemo">데모 데이터</button>
-            <button class="btn danger" id="btnWipe">전체 삭제</button>
-          </div>
-          <div class="hint" style="margin-top:10px">기록은 이 브라우저의 localStorage에 저장됩니다. 기기를 옮길 땐 JSON으로 내보내세요.</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= 설정 ================= -->
-  <section id="viewSettings" class="hidden">
-    <div class="wrap">
-      <div class="card">
-        <h2>판정 기준</h2>
-        <label class="row"><span class="k">자세 점수 기준 (이 점수 이상일 때만 초가 올라감)</span><span><input type="range" id="setThreshold" min="40" max="95" step="1"><b id="vThreshold"></b></span></label>
-        <label class="row"><span class="k">흔들림 허용 시간 (잠깐 무너져도 유지로 인정)</span><span><input type="range" id="setGrace" min="0" max="2000" step="100"><b id="vGrace"></b></span></label>
-        <label class="row"><span class="k">시작 안정화 시간</span><span><input type="range" id="setStable" min="0" max="1500" step="100"><b id="vStable"></b></span></label>
-        <label class="row"><span class="k">기록 최소 시간 (이보다 짧으면 저장 안 함)</span><span><input type="range" id="setMinValid" min="1000" max="15000" step="500"><b id="vMinValid"></b></span></label>
-        <label class="row"><span class="k">수평 보정 (카메라 기울기, °)</span><span><input type="range" id="setTilt" min="-20" max="20" step="0.5"><b id="vTilt"></b></span></label>
-        <label class="row"><span class="k">소리 피드백</span><input type="checkbox" id="setSound"></label>
-        <label class="row"><span class="k">음성 안내 (기록 끝나면 초를 읽어줌)</span><input type="checkbox" id="setVoice"></label>
-        <label class="row"><span class="k">측정 중 화면 꺼짐 방지</span><input type="checkbox" id="setWake"></label>
-        <label class="row"><span class="k">5초마다 틱 사운드</span><input type="checkbox" id="setTick"></label>
-        <label class="row"><span class="k">스켈레톤 표시</span><input type="checkbox" id="setSkeleton"></label>
-        <label class="row"><span class="k">모델 정확도</span>
-          <select id="setModel">
-            <option value="lite">가벼움 (빠름)</option>
-            <option value="full">보통 (권장)</option>
-            <option value="heavy">정확 (느림)</option>
-          </select>
-        </label>
-        <div class="controls"><button class="btn" id="btnReloadModel">모델 다시 로드</button><button class="btn" id="btnResetSettings">기본값 복구</button></div>
-      </div>
-      <div class="card">
-        <h2>동작별 판정 로직</h2>
-        <div class="hint" id="logicDoc"></div>
-      </div>
-    </div>
-  </section>
-</main>
-
-<div id="toast"></div>
-
+<section id="viewSettings" class="hidden"><div class="wrap"><div class="card"><h2>홀드 판정 및 공통 설정</h2>
+<label class="row"><span class="k">홀드 자세 점수 기준</span><span><input type="range" id="setThreshold" min="40" max="95" step="1"><b id="vThreshold"></b></span></label>
+<label class="row"><span class="k">홀드 흔들림 허용 시간</span><span><input type="range" id="setGrace" min="0" max="2000" step="100"><b id="vGrace"></b></span></label>
+<label class="row"><span class="k">홀드 시작 안정화 시간</span><span><input type="range" id="setStable" min="0" max="1500" step="100"><b id="vStable"></b></span></label>
+<label class="row"><span class="k">홀드 기록 최소 시간</span><span><input type="range" id="setMinValid" min="1000" max="15000" step="500"><b id="vMinValid"></b></span></label>
+<label class="row"><span class="k">수평 보정 (카메라 기울기)</span><span><input type="range" id="setTilt" min="-20" max="20" step="0.5"><b id="vTilt"></b></span></label>
+<label class="row"><span class="k">소리 피드백</span><input type="checkbox" id="setSound"></label><label class="row"><span class="k">음성 안내</span><input type="checkbox" id="setVoice"></label><label class="row"><span class="k">측정 중 화면 꺼짐 방지</span><input type="checkbox" id="setWake"></label><label class="row"><span class="k">홀드 5초마다 틱</span><input type="checkbox" id="setTick"></label><label class="row"><span class="k">스켈레톤 표시</span><input type="checkbox" id="setSkeleton"></label>
+<label class="row"><span class="k">모델 정확도</span><select id="setModel"><option value="lite">가벼움</option><option value="full">보통</option><option value="heavy">정확</option></select></label><div class="controls"><button class="btn" id="btnReloadModel">모델 다시 로드</button><button class="btn" id="btnResetSettings">기본값 복구</button></div></div>
+<div class="card"><h2>판정 로직과 제한</h2><div class="hint" id="logicDoc"></div></div></div></section>
+</main><div id="toast"></div>
 <script type="module">
-import { FilesetResolver, PoseLandmarker, DrawingUtils }
-  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
+import { FilesetResolver, PoseLandmarker, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
-/* ============================================================
-   0. 저장소 / 설정
-   ============================================================ */
-const KEY = "holdtracker.v1";
-const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-const DEFAULTS = {
-  threshold: 72, graceMs: 600, stableMs: 300, minValidMs: 3000,
-  tiltCalib: 0, sound: true, tick: false, skeleton: true,
-  model: IS_MOBILE ? "lite" : "full", mirror: false, voice: true, wake: true,
-  facing: "environment"
+const KEY="holdtracker.v1";
+const IS_MOBILE=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const DEFAULTS={threshold:72,graceMs:600,stableMs:300,minValidMs:3000,tiltCalib:0,sound:true,tick:false,skeleton:true,model:IS_MOBILE?"lite":"full",mirror:false,voice:true,wake:true,facing:"environment",measureMode:"hold",selectedDeviceId:""};
+function loadStore(){try{const raw=JSON.parse(localStorage.getItem(KEY)||"{}");return{attempts:Array.isArray(raw.attempts)?raw.attempts:[],repSessions:Array.isArray(raw.repSessions)?raw.repSessions:[],settings:Object.assign({},DEFAULTS,raw.settings||{})};}catch(e){return{attempts:[],repSessions:[],settings:{...DEFAULTS}}}}
+const store=loadStore(),S=store.settings;function save(){localStorage.setItem(KEY,JSON.stringify(store))}
+const $=id=>document.getElementById(id);const clamp01=v=>Math.max(0,Math.min(1,v));
+const MOVES={PLANCHE:{ko:"플란체"},FRONT_LEVER:{ko:"프론트 레버"},BACK_LEVER:{ko:"백 레버"},L_SIT:{ko:"L-sit"},HANDSTAND:{ko:"핸드스탠드"}};
+const VAR_KO={full:"풀",straddle:"스트래들",half:"하프",adv_tuck:"어드밴스드 턱",tuck:"턱",L:"L",V:"V",bent:"굽힘"};
+const REP_NAMES={AIR_SQUAT:"에어 스쿼트",PUSH_UP:"푸시업",PULL_UP:"풀업"};
+const LM={NOSE:0,LSH:11,RSH:12,LEL:13,REL:14,LWR:15,RWR:16,LHIP:23,RHIP:24,LKNE:25,RKNE:26,LANK:27,RANK:28,LHEEL:29,RHEEL:30,LFOOT:31,RFOOT:32};
+const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}),mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2}),len=v=>Math.hypot(v.x,v.y,v.z),dist=(a,b)=>len(sub(a,b)),dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z,cross=(a,b)=>({x:a.y*b.z-a.z*b.y,y:a.z*b.x-a.x*b.z,z:a.x*b.y-a.y*b.x}),normv=v=>{const l=len(v)||1e-6;return{x:v.x/l,y:v.y/l,z:v.z/l}},DEG=180/Math.PI;
+function angleAt(a,b,c){const u=normv(sub(a,b)),v=normv(sub(c,b));return Math.acos(Math.max(-1,Math.min(1,dot(u,v))))*DEG}function horizDev(v){return Math.abs(Math.atan2(Math.abs(v.y),Math.abs(v.x))*DEG)}function vertDev(v){return 90-horizDev(v)}function rotateLandmarks(arr,deg){if(!deg)return arr;const r=-deg/DEG,c=Math.cos(r),s=Math.sin(r);return arr.map(p=>({x:p.x*c-p.y*s,y:p.x*s+p.y*c,z:p.z,visibility:p.visibility}))}function ramp(err,good,bad){if(err<=good)return 1;if(err>=bad)return 0;return(bad-err)/(bad-good)}function rampUp(v,lo,hi){if(v>=hi)return 1;if(v<=lo)return 0;return(v-lo)/(hi-lo)}
+function computeMetrics(worldRaw,norm){const w=rotateLandmarks(worldRaw,S.tiltCalib),g=i=>w[i],vis=i=>(norm[i]&&norm[i].visibility!=null)?norm[i].visibility:1;const sL=g(11),sR=g(12),hL=g(23),hR=g(24),eL=g(13),eR=g(14),wL=g(15),wR=g(16),kL=g(25),kR=g(26),aL=g(27),aR=g(28);const vm=(a,b,i,j)=>{const x=vis(i),y=vis(j);if(x<.3&&y>=.45)return b;if(y<.3&&x>=.45)return a;return mid(a,b)};const Sh=vm(sL,sR,11,12),Hp=vm(hL,hR,23,24),Kn=vm(kL,kR,25,26),An=vm(aL,aR,27,28),El=vm(eL,eR,13,14),Wr=vm(wL,wR,15,16);const conf=[11,12,23,24,15,16,27,28].reduce((a,i)=>a+vis(i),0)/8;const torsoLen=dist(Sh,Hp)||1e-6,legLen=dist(Hp,Kn)+dist(Kn,An)||1e-6,armLen=dist(Sh,El)+dist(El,Wr)||1e-6,bodyLen=torsoLen+legLen;const wavg=(vl,vr,il,ir)=>{const a=Math.max(vis(il),.01),b=Math.max(vis(ir),.01);return(vl*a+vr*b)/(a+b)};const elbowAngle=wavg(angleAt(sL,eL,wL),angleAt(sR,eR,wR),13,14),kneeAngle=wavg(angleAt(hL,kL,aL),angleAt(hR,kR,aR),25,26),hipAngle=wavg(angleAt(sL,hL,kL),angleAt(sR,hR,kR),23,24),shoulderAngle=wavg(angleAt(eL,sL,hL),angleAt(eR,sR,hR),11,12),hipAngleMid=angleAt(Sh,Hp,Kn),kneeAngleMid=angleAt(Hp,Kn,An);const torsoVec=sub(Hp,Sh),legVec=sub(An,Hp),fullVec=sub(An,Sh),axis=normv(torsoVec),lateral=normv(sub(sL,sR)),ventral=normv(cross(axis,lateral));const wristAbove=(Sh.y-Wr.y)/armLen,feetAboveHands=(Wr.y-An.y)/armLen,hipsAboveShoulders=(Sh.y-Hp.y)/bodyLen,feetDir=normv({x:fullVec.x,y:fullVec.y,z:0}),shoulderLean=-((Sh.x-Wr.x)*feetDir.x+(Sh.y-Wr.y)*feetDir.y)/armLen;const ux=fullVec.x,uy=fullVec.y,ul=Math.hypot(ux,uy)||1e-6,hipSag=Math.abs((ux*(Hp.y-Sh.y)-uy*(Hp.x-Sh.x))/ul)/bodyLen,ankleSpread=dist(aL,aR)/legLen;const hipBelowKnee=(Hp.y-Kn.y)/legLen,nose=g(0),noseAboveWrist=(Wr.y-nose.y)/armLen,shoulderWristVertical=(Sh.y-Wr.y)/armLen;return{conf,elbowAngle,kneeAngle,hipAngle,shoulderAngle,hipAngleMid,kneeAngleMid,torsoHoriz:horizDev(torsoVec),torsoVert:vertDev(torsoVec),legHoriz:horizDev(legVec),fullHoriz:horizDev(fullVec),fullVert:vertDev(fullVec),ventralY:ventral.y,wristAbove,feetAboveHands,hipsAboveShoulders,shoulderLean,hipSag,ankleSpread,bodyLen,armLen,legLen,hipBelowKnee,noseAboveWrist,shoulderWristVertical,Sh,Hp,Kn,An,Wr}}
+function classifyVariation(m,move){if(move==="L_SIT")return m.kneeAngle<120?"tuck":m.hipAngle<70?"V":"L";if(move==="HANDSTAND")return m.hipAngle>155&&m.kneeAngle>155?"full":"tuck";if(m.kneeAngle<115&&m.hipAngle<115)return"tuck";if(m.kneeAngle<140&&m.hipAngle<155)return"adv_tuck";if(m.ankleSpread>.62&&m.kneeAngle>=145&&m.hipAngleMid>=145)return"straddle";if(m.hipAngleMid>=155&&m.kneeAngle>=155&&m.ankleSpread<=.62)return"full";return"half"}const isTucked=v=>v==="tuck"||v==="adv_tuck";
+function evaluate(move,m){const v=classifyVariation(m,move),tucked=isTucked(v),lineDev=tucked?m.torsoHoriz:m.fullHoriz,C=[];let gate=true,why="";const push=(label,score,weight,detail)=>C.push({label,score:clamp01(score),weight,detail,priority:"필수",pass:score>=.72});if(move==="PLANCHE"){gate=m.wristAbove<.25&&m.feetAboveHands>.35&&lineDev<38&&m.ventralY>-.35;if(!gate)why=m.feetAboveHands<=.35?"발이 손 높이보다 충분히 올라오지 않음":"플란체 조건 아님";push("수평",ramp(lineDev,8,26),.34,lineDev.toFixed(0)+"°");push("팔 폄",ramp(180-m.elbowAngle,10,38),.24,m.elbowAngle.toFixed(0)+"°");push("어깨 전방",rampUp(m.shoulderLean,.05,.38),.20,m.shoulderLean.toFixed(2));tucked?push("엉덩이 높이",ramp(Math.abs(m.hipsAboveShoulders),.05,.22),.22,(m.hipsAboveShoulders*100).toFixed(0)+"%"):push("몸 일직선",ramp(180-m.hipAngleMid,14,45),.22,m.hipAngleMid.toFixed(0)+"°")}else if(move==="FRONT_LEVER"||move==="BACK_LEVER"){const faceUp=m.ventralY<0;gate=m.wristAbove>.28&&lineDev<40&&(move==="FRONT_LEVER"?faceUp:!faceUp);if(!gate)why=m.wristAbove<=.28?"손목이 어깨 위인 매달림 구도가 아님":"몸 방향이 다름";push("수평",ramp(lineDev,8,27),.38,lineDev.toFixed(0)+"°");push("팔 폄",ramp(180-m.elbowAngle,10,40),.24,m.elbowAngle.toFixed(0)+"°");if(tucked)push("몸통 고정",ramp(Math.abs(m.hipsAboveShoulders),.05,.22),.22,(m.hipsAboveShoulders*100).toFixed(0)+"%");else{push("허리 처짐",ramp(m.hipSag,.05,.20),.14,(m.hipSag*100).toFixed(0)+"%");push("몸 일직선",ramp(180-m.hipAngleMid,14,45),.12,m.hipAngleMid.toFixed(0)+"°")}push("어깨 각",ramp(Math.abs(m.shoulderAngle-90),22,55),.16,m.shoulderAngle.toFixed(0)+"°")}else if(move==="L_SIT"){gate=m.wristAbove<.25&&m.torsoVert<32&&m.legHoriz<35;if(!gate)why="몸통 수직 + 다리 수평 조건이 아님";push("몸통 수직",ramp(m.torsoVert,8,30),.30,m.torsoVert.toFixed(0)+"°");push("다리 수평",ramp(m.legHoriz,8,30),.30,m.legHoriz.toFixed(0)+"°");push("무릎 폄",v==="tuck"?1:ramp(180-m.kneeAngleMid,12,45),.24,m.kneeAngle.toFixed(0)+"°");push("팔 폄",ramp(180-m.elbowAngle,12,45),.16,m.elbowAngle.toFixed(0)+"°")}else if(move==="HANDSTAND"){gate=m.wristAbove<.1&&m.hipsAboveShoulders>.15&&m.fullVert<35;if(!gate)why="엉덩이가 어깨 위인 전신 수직 조건이 아님";push("전신 수직",ramp(m.fullVert,6,28),.45,m.fullVert.toFixed(0)+"°");push("팔 폄",ramp(180-m.elbowAngle,10,40),.25,m.elbowAngle.toFixed(0)+"°");push("몸 일직선",ramp(180-m.hipAngleMid,12,45),.30,m.hipAngleMid.toFixed(0)+"°")};let total=0,wsum=0,minc=1;for(const c of C){total+=c.score*c.weight;wsum+=c.weight;minc=Math.min(minc,c.score)}const avg=wsum?total/wsum*100:0,score=Math.min(avg,45+55*minc),worstC=C.length?C.reduce((a,b)=>a.score<=b.score?a:b):null;return{move,variation:v,gate,why,score,components:C,worst:worstC&&worstC.score<.9?worstC.label:null}}
+function classify(m,lock){if(lock!=="auto")return evaluate(lock,m);let best=null;for(const k of Object.keys(MOVES)){const r=evaluate(k,m);if(r.gate&&(!best||r.score>best.score))best=r}return best||{move:null,variation:null,gate:false,score:0,components:[],why:"홀드 인식 대기",worst:null}}
+
+const T={state:"IDLE",move:null,variation:null,lastT:null,armedMs:0,breakMs:0,elapsedMs:0,cleanMs:0,scores:[],varCount:{},worstCount:{},scoresSnapshot:[],cleanSnapshot:0,componentStats:{}};
+function resetAttempt(){Object.assign(T,{state:"IDLE",move:null,variation:null,lastT:null,armedMs:0,breakMs:0,elapsedMs:0,cleanMs:0,scores:[],varCount:{},worstCount:{},componentStats:{}})}function pauseHoldClock(sourceMs){T.lastT=sourceMs}function tickTimer(sourceMs,res){const ok=res&&res.gate&&res.score>=S.threshold,okLoose=res&&res.gate&&res.score>=S.threshold-8;const dt=T.lastT==null?0:Math.max(0,Math.min(250,sourceMs-T.lastT));T.lastT=sourceMs;if(T.state==="IDLE"){if(ok){T.state="ARMING";T.armedMs=0;T.move=res.move;T.variation=res.variation}}else if(T.state==="ARMING"){if(!ok){resetAttempt();T.lastT=sourceMs;return}if(res.move!==T.move){T.move=res.move;T.armedMs=0}T.armedMs+=dt;if(T.armedMs>=S.stableMs){T.state="HOLDING";T.elapsedMs=0;T.cleanMs=0;T.scores=[];T.varCount={};T.worstCount={};beep(880,90)}}else if(T.state==="HOLDING"||T.state==="BREAKING"){if(res&&res.move&&res.move!==T.move&&res.score>S.threshold){endAttempt();T.lastT=sourceMs;return}if(ok){T.state="HOLDING";T.breakMs=0;T.elapsedMs+=dt;T.cleanMs+=dt;T.scores.push(res.score);for(const c of res.components||[]){const a=T.componentStats[c.label]||(T.componentStats[c.label]={sum:0,count:0,latest:""});a.sum+=c.score*100;a.count++;a.latest=c.detail}T.varCount[res.variation]=(T.varCount[res.variation]||0)+1;if(res.worst)T.worstCount[res.worst]=(T.worstCount[res.worst]||0)+1}else if(okLoose){T.elapsedMs+=dt;T.breakMs=0}else{if(T.state==="HOLDING"){T.state="BREAKING";T.breakMs=0}T.breakMs+=dt;if(T.breakMs<=S.graceMs)T.elapsedMs+=dt;else endAttempt()}}}
+function currentElapsed(){return T.state==="HOLDING"||T.state==="BREAKING"?T.elapsedMs:0}function topKey(o){let k=null,v=-1;for(const key in o)if(o[key]>v){v=o[key];k=key}return k}function bestOf(move,variation){return store.attempts.filter(a=>a.move===move&&(!variation||a.variation===variation)).reduce((mx,a)=>Math.max(mx,a.durationMs),0)}
+function endAttempt(){const durMs=Math.max(0,T.elapsedMs),move=T.move,scores=T.scores.slice(),clean=T.cleanMs,varCount={...T.varCount},worstCount={...T.worstCount},components=Object.entries(T.componentStats||{}).map(([label,a])=>({label,score:+(a.sum/a.count).toFixed(1),detail:a.latest}));resetAttempt();if(!move||durMs<S.minValidMs){beep(220,80);return}const variation=topKey(varCount)||"full",worst=topKey(worstCount),avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0,min=scores.length?Math.min(...scores):0,rec={id:Date.now()+"-"+Math.random().toString(36).slice(2,7),ts:new Date().toISOString(),move,variation,durationMs:Math.round(durMs),cleanMs:Math.round(clean),avgScore:+avg.toFixed(1),minScore:+min.toFixed(1),worst,components};const wasPB=bestOf(move,variation)<rec.durationMs;store.attempts.push(rec);save();renderAllData();beep(wasPB?1320:660,160);const sec=(rec.durationMs/1000).toFixed(1);toast(wasPB?`새 PB · ${MOVES[move].ko} ${sec}초`:`홀드 저장 · ${MOVES[move].ko} ${sec}초`);speak(wasPB?`신기록 ${sec}초`:`${sec}초`)}
+
+const TOP_TH=.25,BOT_TH=.7,TOP_SETTLE_MS=1800,MIN_REP_MS=450,MAX_REP_MS=30000;
+const REP_MOVES={
+ AIR_SQUAT:{ko:"에어 스쿼트",signal:m=>rampUp(170-m.kneeAngle,10,90),checks:m=>[{key:"depth",label:"하단 깊이 프록시",at:"bottom",priority:"필수",pass:m.hipBelowKnee>0,fmt:`엉덩이-무릎 ${(m.hipBelowKnee*100).toFixed(0)}%`,prog:rampUp(m.hipBelowKnee,-.12,.02)},{key:"kneeExt",label:"상단 무릎 신전",at:"top",priority:"필수",pass:m.kneeAngle>168,fmt:`무릎 ${m.kneeAngle.toFixed(0)}°`,prog:rampUp(m.kneeAngle,140,170)},{key:"hipExt",label:"상단 고관절 신전",at:"top",priority:"필수",pass:m.hipAngle>165,fmt:`고관절 ${m.hipAngle.toFixed(0)}°`,prog:rampUp(m.hipAngle,140,168)}],doc:"화면상 고관절 중심이 무릎 중심보다 낮아지는지와 상단 무릎·고관절 신전을 추정합니다."},
+ PUSH_UP:{ko:"푸시업",signal:m=>rampUp(170-m.elbowAngle,15,75),checks:m=>[{key:"bend",label:"하단 팔꿈치 굽힘",at:"bottom",priority:"필수",pass:m.elbowAngle<95,fmt:`팔꿈치 ${m.elbowAngle.toFixed(0)}°`,prog:rampUp(125-m.elbowAngle,0,38)},{key:"low",label:"하단 높이 프록시",at:"bottom",priority:"보조",pass:m.shoulderWristVertical>-.78,fmt:`어깨-손목 ${(m.shoulderWristVertical*100).toFixed(0)}%`,prog:rampUp(m.shoulderWristVertical,-1.05,-.68)},{key:"lock",label:"상단 팔꿈치 신전",at:"top",priority:"필수",pass:m.elbowAngle>165,fmt:`팔꿈치 ${m.elbowAngle.toFixed(0)}°`,prog:rampUp(m.elbowAngle,140,168)},{key:"line",label:"몸통 정렬",at:"any",priority:"필수",pass:m.hipAngle>150,fmt:`고관절 ${m.hipAngle.toFixed(0)}°`,prog:rampUp(m.hipAngle,130,160)}],doc:"팔꿈치 각도와 어깨-손목 상대 높이로 하단을 추정합니다. 실제 가슴-바닥 접촉은 감지하지 않습니다."},
+ PULL_UP:{ko:"풀업",signal:m=>rampUp(170-m.elbowAngle,15,100),checks:m=>[{key:"nose",label:"상단 코-손목선 프록시",at:"bottom",priority:"필수",pass:m.noseAboveWrist>.02,fmt:`코-손목선 ${(m.noseAboveWrist*100).toFixed(0)}%`,prog:rampUp(m.noseAboveWrist,-.25,.04)},{key:"ext",label:"하단 팔꿈치 신전",at:"top",priority:"필수",pass:m.elbowAngle>165,fmt:`팔꿈치 ${m.elbowAngle.toFixed(0)}°`,prog:rampUp(m.elbowAngle,140,168)}],doc:"코가 손목선 위로 올라오는지와 하단 팔꿈치 신전을 사용합니다. 바 위치나 턱-바 통과를 직접 감지하지 않습니다."}
 };
-const store = loadStore();
-function loadStore(){
-  try{
-    const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
-    return { attempts: raw.attempts || [], settings: Object.assign({}, DEFAULTS, raw.settings || {}) };
-  }catch(e){ return { attempts: [], settings: Object.assign({}, DEFAULTS) }; }
+const R={move:"AIR_SQUAT",phase:"TOP",good:0,bad:0,reps:[],bottomAchieved:{},anyFailed:{},pending:null,cycleStartMs:null,sessionElapsedMs:0,lastSourceMs:null,sessionId:null,startedIso:null,saved:false};
+function clearRepTransient(){Object.assign(R,{phase:"TOP",bottomAchieved:{},anyFailed:{},pending:null,cycleStartMs:null,lastSourceMs:null})}function resetRepSession(keepMove=true){const move=keepMove?R.move:"AIR_SQUAT";Object.assign(R,{move,phase:"TOP",good:0,bad:0,reps:[],bottomAchieved:{},anyFailed:{},pending:null,cycleStartMs:null,sessionElapsedMs:0,lastSourceMs:null,sessionId:null,startedIso:null,saved:false});renderRepLive();renderKPI()}function pauseRepClock(sourceMs){R.lastSourceMs=sourceMs}function requiredPass(checks){return checks.filter(c=>c.priority==="필수").every(c=>c.pass)}function failedLabel(checks){const c=checks.find(x=>x.priority==="필수"&&!x.pass)||checks.find(x=>!x.pass);return c?c.label:"기준 미달"}
+function stepRep(sourceMs,m){const def=REP_MOVES[R.move],sig=def.signal(m),checks=def.checks(m),bottom=checks.filter(c=>c.at==="bottom"),top=checks.filter(c=>c.at==="top"),any=checks.filter(c=>c.at==="any");const dt=R.lastSourceMs==null?0:Math.max(0,Math.min(250,sourceMs-R.lastSourceMs));R.lastSourceMs=sourceMs;R.sessionElapsedMs+=dt;if(R.cycleStartMs!==null||R.phase==="BOTTOM")for(const c of any)if(!c.pass&&c.priority==="필수")R.anyFailed[c.key]=c.label;
+ const settle=(valid,reason)=>{if(!R.pending)return;const p=R.pending;R.pending=null;const dur=Math.max(0,sourceMs-p.cycleStartMs);commitRep(sourceMs,dur,valid,reason,p)};
+ if(R.phase==="TOP"){if(!R.pending&&sig>TOP_TH&&R.cycleStartMs===null){R.cycleStartMs=sourceMs;R.anyFailed={}}if(R.pending){if(requiredPass(top))settle(R.pending.bottomOk&&!Object.keys(R.pending.anyFailed).length,R.pending.bottomOk?Object.values(R.pending.anyFailed)[0]||"":"하단 기준 미달");else if(sourceMs-R.pending.returnedTopMs>=TOP_SETTLE_MS)settle(false,failedLabel(top))}if(sig>BOT_TH){if(R.pending)settle(false,failedLabel(top));R.phase="BOTTOM";R.cycleStartMs=R.cycleStartMs??sourceMs;R.bottomAchieved={};for(const c of bottom)if(c.pass)R.bottomAchieved[c.key]=true}}else{for(const c of bottom)if(c.pass)R.bottomAchieved[c.key]=true;if(sig<TOP_TH){const bottomRequired=bottom.filter(c=>c.priority==="필수"),bottomOk=bottomRequired.every(c=>R.bottomAchieved[c.key]);R.pending={returnedTopMs:sourceMs,cycleStartMs:R.cycleStartMs??sourceMs,bottomOk,bottomMissing:bottomRequired.filter(c=>!R.bottomAchieved[c.key]).map(c=>c.label),anyFailed:{...R.anyFailed}};R.phase="TOP";R.cycleStartMs=null;R.bottomAchieved={};R.anyFailed={};if(requiredPass(top))settle(bottomOk&&!Object.keys(R.pending?.anyFailed||{}).length,bottomOk?Object.values(R.pending?.anyFailed||{})[0]||"":R.pending?.bottomMissing?.[0]||"하단 기준 미달")}}
+ return{sig,checks,metrics:m,phase:R.phase,pending:!!R.pending}}
+function commitRep(sourceMs,durationMs,valid,reason,pendingData){if(durationMs<MIN_REP_MS||durationMs>MAX_REP_MS){valid=false;reason=durationMs<MIN_REP_MS?"사이클이 너무 짧음":"사이클이 너무 김"}if(valid)R.good++;else R.bad++;const rep={n:R.good+R.bad,tMs:R.sessionElapsedMs,durationMs:Math.round(durationMs),valid,reason:reason||"",bottomAchieved:pendingData?.bottomOk??false};R.reps.push(rep);persistRepSession();flash(valid);speakCount(valid);renderRepLive();renderKPI()}
+function persistRepSession(){if(!R.reps.length)return;if(!R.sessionId){R.sessionId=Date.now()+"-rep-"+Math.random().toString(36).slice(2,7);R.startedIso=new Date().toISOString()}const rec={id:R.sessionId,ts:R.startedIso,updatedAt:new Date().toISOString(),move:R.move,workout:$("repWorkout").value,target:$("repWorkout").value==="free"?null:+$("repTarget").value,durationMs:Math.round(R.sessionElapsedMs),good:R.good,bad:R.bad,reps:R.reps.map(x=>({...x})),source:inputKind};const i=store.repSessions.findIndex(x=>x.id===R.sessionId);if(i>=0)store.repSessions[i]=rec;else store.repSessions.push(rec);save();renderRepHistory()}
+
+function assessFraming(lm,options={}){const threshold=options.visibilityThreshold??.45,margin=options.margin??.025;const groups={머리:[0],손:[15,16],발:[27,28,31,32],몸통:[11,12,23,24]};const missing=[],clipped=[];if(!lm||!lm.length)return{ok:false,missing:["포즈"],clipped:[],message:"사람을 찾지 못했습니다. 전신이 보이도록 위치를 조정하세요."};for(const[name,ids]of Object.entries(groups)){const visible=ids.filter(i=>lm[i]&&(lm[i].visibility??1)>=threshold);if(!visible.length)missing.push(name);if(visible.some(i=>lm[i].x<margin||lm[i].x>1-margin||lm[i].y<margin||lm[i].y>1-margin))clipped.push(name)}const ok=!missing.length&&!clipped.length;let message="프레이밍 양호";if(missing.length)message=`${missing.join("·")} 랜드마크가 흐립니다. 측정을 일시정지합니다.`;else if(clipped.length)message=`${clipped.join("·")} 항목이 프레임 경계에 닿았습니다. 측정을 일시정지합니다.`;return{ok,missing,clipped,message}}
+
+let audioCtx=null,wakeLock=null,toastTimer=null;function unlockAudio(){try{audioCtx=audioCtx||new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")audioCtx.resume();if(speechSynthesis){const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}}catch(e){}}function beep(freq,ms,vol=.14){if(!S.sound)return;try{audioCtx=audioCtx||new(window.AudioContext||window.webkitAudioContext)();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=freq;o.connect(g);g.connect(audioCtx.destination);g.gain.setValueAtTime(vol,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+ms/1000);o.start();o.stop(audioCtx.currentTime+ms/1000)}catch(e){}}function speak(text){if(!S.voice||!speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="ko-KR";u.rate=1.12;speechSynthesis.speak(u)}catch(e){}}function speakCount(valid){speak(valid?String(R.good):"노 렙")}function toast(msg){$("toast").textContent=msg;$("toast").classList.add("on");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.remove("on"),2500)}async function acquireWake(){if(!S.wake||!navigator.wakeLock)return;try{wakeLock=await navigator.wakeLock.request("screen")}catch(e){}}function releaseWake(){try{wakeLock&&wakeLock.release()}catch(e){}wakeLock=null}
+const flashEl=$("flash"),norepEl=$("norepTxt");let flashTimer=null,norepTimer=null;function flash(valid){flashEl.className="flash "+(valid?"ok":"bad");clearTimeout(flashTimer);flashTimer=setTimeout(()=>flashEl.className="flash",160);beep(valid?880:200,valid?70:220,valid?.14:.22);if(!valid){norepEl.classList.add("on");clearTimeout(norepTimer);norepTimer=setTimeout(()=>norepEl.classList.remove("on"),700)}}
+
+const video=$("video"),overlay=$("overlay"),ctx=overlay.getContext("2d");let landmarker=null,drawUtils=null,running=false,stream=null,rafId=null,lastVideoTime=-1,lastFreshWall=0,lastResult=null,inputKind="camera",objectUrl=null,startGeneration=0,activeTrack=null,currentZoomCaps=null,lastTickSec=-1;
+const MODEL_URL=m=>`https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${m}/float16/latest/pose_landmarker_${m}.task`;
+function setStatus(text,kind){$("statusText").textContent=text;$("dotModel").className="dot"+(kind==="ok"?" on":kind==="err"?" err":"")}
+let modelLoading=null;function initModel(){if(modelLoading)return modelLoading;modelLoading=initModelImpl().finally(()=>modelLoading=null);return modelLoading}
+async function initModelImpl(){setStatus("모델 로딩 중…","load");const build=(fs,d)=>PoseLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:MODEL_URL(S.model),delegate:d},runningMode:"VIDEO",numPoses:1,minPoseDetectionConfidence:.5,minPosePresenceConfidence:.5,minTrackingConfidence:.5,outputSegmentationMasks:false});try{const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm");if(landmarker){try{landmarker.close()}catch(e){}landmarker=null}let d="GPU";try{landmarker=await build(fs,"GPU")}catch(e){landmarker=await build(fs,"CPU");d="CPU"}drawUtils=new DrawingUtils(ctx);setStatus(`모델 준비 (${S.model}·${d})`,"ok");return true}catch(e){console.error(e);setStatus("모델 로딩 실패","err");toast("모델 로딩 실패 · 설정에서 가벼움 모델을 시도하세요");return false}}
+async function stopMedia({resetEngines=false}={}){if(T.state==="HOLDING"||T.state==="BREAKING")endAttempt();trackingGapAt=null;$("stage").classList.remove("live");running=false;if(rafId){cancelAnimationFrame(rafId);rafId=null}startGeneration++;if(stream){for(const t of stream.getTracks())t.stop();stream=null}activeTrack=null;currentZoomCaps=null;video.pause();video.srcObject=null;if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl=null}lastVideoTime=-1;lastResult=null;resetAttempt();clearRepTransient();releaseWake();$("btnStart").disabled=false;$("btnStop").disabled=true;updateZoomUI(null);if(resetEngines){resetAttempt();resetRepSession()}}
+async function listCams(preferred=""){try{const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"),sel=$("camSelect");sel.innerHTML='<option value="">자동 선택</option>';devs.forEach((d,i)=>{const o=document.createElement("option");o.value=d.deviceId;o.textContent=d.label||`카메라 ${i+1}`;sel.appendChild(o)});const wanted=preferred||S.selectedDeviceId;if(wanted&&[...sel.options].some(o=>o.value===wanted))sel.value=wanted;else{sel.value="";if(wanted){S.selectedDeviceId="";save()}}}catch(e){console.warn(e)}}
+function updateZoomUI(caps,settings){currentZoomCaps=caps&&caps.zoom?caps.zoom:null;const z=$("zoomSlider"),v=$("zoomValue");if(!currentZoomCaps){z.disabled=true;v.textContent="미지원";z.removeAttribute("min");z.removeAttribute("max");return}z.disabled=false;z.min=currentZoomCaps.min;z.max=currentZoomCaps.max;z.step=currentZoomCaps.step||.1;z.value=settings?.zoom??currentZoomCaps.min;v.textContent=(+z.value).toFixed(1)+"×"}
+async function configureTrack(track){activeTrack=track;const caps=typeof track.getCapabilities==="function"?track.getCapabilities():{},settings=typeof track.getSettings==="function"?track.getSettings():{};if(caps.zoom&&Number.isFinite(caps.zoom.min)){try{await track.applyConstraints({advanced:[{zoom:caps.zoom.min}]})}catch(e){console.warn("minimum zoom not applied",e)}}const actual=typeof track.getSettings==="function"?track.getSettings():settings;updateZoomUI(caps,actual);$("captureDetails").textContent=`${actual.width||video.videoWidth||"?"}×${actual.height||video.videoHeight||"?"} · ${actual.frameRate?actual.frameRate.toFixed(0)+"fps":"fps 미상"} · ${currentZoomCaps?`줌 ${currentZoomCaps.min}–${currentZoomCaps.max}×`:"카메라 줌 미지원"}`}
+async function startCamera(){unlockAudio();const generation=++startGeneration;await stopMedia();const myGeneration=++startGeneration;$("btnStart").disabled=true;if(!landmarker&&!(await initModel())){$("btnStart").disabled=false;return}try{const devId=$("camSelect").value||S.selectedDeviceId;const constraint=devId?{deviceId:{exact:devId},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}:{facingMode:{ideal:S.facing},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}};const next=await navigator.mediaDevices.getUserMedia({video:constraint,audio:false});if(myGeneration!==startGeneration){next.getTracks().forEach(t=>t.stop());return}stream=next;inputKind="camera";video.removeAttribute("src");video.srcObject=stream;video.controls=false;video.loop=false;await video.play();await configureTrack(stream.getVideoTracks()[0]);await listCams(stream.getVideoTracks()[0].getSettings().deviceId||devId);await acquireWake();startLoop();setStatus("카메라 측정 중","ok")}catch(e){if(myGeneration!==startGeneration)return;await stopMedia();setStatus("카메라 접근 실패: "+e.message,"err");toast("카메라 권한 또는 렌즈 선택을 확인하세요")}void generation}
+async function loadVideoFile(file){unlockAudio();await stopMedia();if(!landmarker&&!(await initModel()))return;objectUrl=URL.createObjectURL(file);inputKind="file";video.srcObject=null;video.src=objectUrl;video.controls=true;video.loop=false;await video.play();$("captureDetails").textContent=`영상 파일 · ${file.name}`;startLoop()}
+function startLoop(){$("stage").classList.add("live");running=true;lastVideoTime=-1;lastFreshWall=performance.now();lastResult=null;resetAttempt();clearRepTransient();$("btnStart").disabled=true;$("btnStop").disabled=false;loop()}
+function sourceTimeMs(){return video.currentTime*1000}
+let trackingGapAt=null;
+function trackingUnavailable(wall,source){
+ pauseHoldClock(source);clearRepTransient();pauseRepClock(source);
+ if(trackingGapAt===null)trackingGapAt=wall;
+ if(wall-trackingGapAt>600&&T.state!=="IDLE")endAttempt();
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(store)); }
-const S = store.settings;
-
-/* ============================================================
-   1. 동작 정의
-   ============================================================ */
-const MOVES = {
-  PLANCHE:     { ko:"플란체",        support:"floor" },
-  FRONT_LEVER: { ko:"프론트 레버",   support:"hang"  },
-  BACK_LEVER:  { ko:"백 레버",       support:"hang"  },
-  L_SIT:       { ko:"L-sit",         support:"floor" },
-  HANDSTAND:   { ko:"핸드스탠드",    support:"floor" },
-};
-const VAR_KO = { full:"풀", straddle:"스트래들", half:"하프", adv_tuck:"어드밴스드 턱", tuck:"턱", L:"L", V:"V", bent:"굽힘" };
-
-/* ============================================================
-   2. 벡터 / 각도 유틸
-   ============================================================ */
-const LM = { NOSE:0, LSH:11, RSH:12, LEL:13, REL:14, LWR:15, RWR:16, LHIP:23, RHIP:24, LKNE:25, RKNE:26, LANK:27, RANK:28 };
-const sub=(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z});
-const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2});
-const len=(v)=>Math.hypot(v.x,v.y,v.z);
-const dist=(a,b)=>len(sub(a,b));
-const dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z;
-const cross=(a,b)=>({x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x});
-const normv=(v)=>{const l=len(v)||1e-6;return{x:v.x/l,y:v.y/l,z:v.z/l}};
-const DEG = 180/Math.PI;
-function angleAt(a,b,c){ // b가 꼭짓점
-  const u=normv(sub(a,b)), v=normv(sub(c,b));
-  return Math.acos(Math.max(-1,Math.min(1,dot(u,v))))*DEG;
-}
-// (x,y) 평면에서 수평선과 이루는 각 (0=수평, 90=수직)
-function horizDev(v){ return Math.abs(Math.atan2(Math.abs(v.y), Math.abs(v.x))*DEG); }
-function vertDev(v){ return 90 - horizDev(v); }
-// 카메라 기울기 보정: (x,y)를 -deg 회전
-function rotateLandmarks(arr, deg){
-  if(!deg) return arr;
-  const r=-deg/DEG, c=Math.cos(r), s=Math.sin(r);
-  return arr.map(p=>({x:p.x*c-p.y*s, y:p.x*s+p.y*c, z:p.z, visibility:p.visibility}));
-}
-// err(오차)가 good 이하면 1점, bad 이상이면 0점
-function ramp(err, good, bad){ if(err<=good) return 1; if(err>=bad) return 0; return (bad-err)/(bad-good); }
-// v가 hi 이상이면 1점, lo 이하면 0점 (클수록 좋은 값)
-function rampUp(v, lo, hi){ if(v>=hi) return 1; if(v<=lo) return 0; return (v-lo)/(hi-lo); }
-
-/* ============================================================
-   3. 프레임 → 지표 계산
-   ============================================================ */
-function computeMetrics(worldRaw, norm){
-  const w = rotateLandmarks(worldRaw, S.tiltCalib);
-  const g = i => w[i];
-  const vis = i => (norm[i] && norm[i].visibility != null) ? norm[i].visibility : 1;
-
-  const sL=g(LM.LSH), sR=g(LM.RSH), hL=g(LM.LHIP), hR=g(LM.RHIP);
-  const eL=g(LM.LEL), eR=g(LM.REL), wL=g(LM.LWR), wR=g(LM.RWR);
-  const kL=g(LM.LKNE), kR=g(LM.RKNE), aL=g(LM.LANK), aR=g(LM.RANK);
-  const Sh=mid(sL,sR), Hp=mid(hL,hR), Kn=mid(kL,kR), An=mid(aL,aR), El=mid(eL,eR), Wr=mid(wL,wR);
-
-  const conf = (vis(11)+vis(12)+vis(23)+vis(24)+vis(15)+vis(16)+vis(27)+vis(28))/8;
-
-  const torsoLen = dist(Sh,Hp) || 1e-6;
-  const legLen   = (dist(Hp,Kn)+dist(Kn,An)) || 1e-6;
-  const armLen   = (dist(Sh,El)+dist(El,Wr)) || 1e-6;
-  const bodyLen  = torsoLen + legLen;
-
-  // 가시성 가중 좌/우 평균
-  const wavg = (vl, vr, il, ir) => {
-    const a=Math.max(vis(il),0.01), b=Math.max(vis(ir),0.01);
-    return (vl*a + vr*b)/(a+b);
-  };
-  const elbowAngle = wavg(angleAt(sL,eL,wL), angleAt(sR,eR,wR), 13, 14);
-  const kneeAngle  = wavg(angleAt(hL,kL,aL), angleAt(hR,kR,aR), 25, 26);
-  const hipAngle   = wavg(angleAt(sL,hL,kL), angleAt(sR,hR,kR), 23, 24);
-  const shoulderAngle = wavg(angleAt(eL,sL,hL), angleAt(eR,sR,hR), 11, 12);
-  // 중앙선 기준 각도: 스트래들처럼 좌우 대칭으로 벌린 자세에서도 '몸 일직선'을 올바르게 평가
-  const hipAngleMid  = angleAt(Sh, Hp, Kn);
-  const kneeAngleMid = angleAt(Hp, Kn, An);
-
-  // 몸통/다리/전신 라인
-  const torsoVec = sub(Hp,Sh);
-  const legVec   = sub(An,Hp);
-  const fullVec  = sub(An,Sh);
-
-  // 배(ventral) 방향: cross(머리→엉덩이 축, 오른어깨→왼어깨) = 몸의 앞면
-  const axis = normv(torsoVec);
-  const lateral = normv(sub(sL,sR));
-  const ventral = normv(cross(axis, lateral)); // ventral.y > 0 이면 배가 아래(엎드림)
-
-  // 지지 형태
-  const wristAbove = (Sh.y - Wr.y)/armLen;      // + = 손목이 어깨보다 위(=매달림)
-  const feetAboveHands = (Wr.y - An.y)/armLen;  // + = 발이 손보다 위
-  const hipsAboveShoulders = (Sh.y - Hp.y)/bodyLen; // + = 엉덩이가 어깨보다 위(=거꾸로)
-
-  // 플란체 어깨 기울임: 어깨가 손목보다 '발 반대쪽'으로 나가 있는 정도
-  const feetDir = normv({x:fullVec.x, y:fullVec.y, z:0});
-  const shoulderLean = -(( Sh.x-Wr.x)*feetDir.x + (Sh.y-Wr.y)*feetDir.y)/armLen;
-
-  // 허리 처짐/꺾임: 어깨-발목 직선에서 엉덩이가 벗어난 거리
-  const ux=fullVec.x, uy=fullVec.y, ul=Math.hypot(ux,uy)||1e-6;
-  const hipSag = Math.abs((ux*(Hp.y-Sh.y) - uy*(Hp.x-Sh.x))/ul)/bodyLen;
-
-  const ankleSpread = dist(aL,aR)/legLen;
-
-  return {
-    conf, elbowAngle, kneeAngle, hipAngle, shoulderAngle, hipAngleMid, kneeAngleMid,
-    torsoHoriz: horizDev(torsoVec), torsoVert: vertDev(torsoVec),
-    legHoriz: horizDev(legVec), fullHoriz: horizDev(fullVec), fullVert: vertDev(fullVec),
-    ventralY: ventral.y, wristAbove, feetAboveHands, hipsAboveShoulders,
-    shoulderLean, hipSag, ankleSpread, bodyLen, armLen,
-    Sh, Hp, Kn, An, Wr
-  };
-}
-
-/* ============================================================
-   4. 변형(턱/어드밴스드턱/스트래들/풀) 판정
-   ============================================================ */
-function classifyVariation(m, move){
-  if(move==="L_SIT")     return m.kneeAngle<120 ? "tuck" : (m.hipAngle<70 ? "V" : "L");
-  if(move==="HANDSTAND") return m.hipAngle>155 && m.kneeAngle>155 ? "full" : "tuck";
-  if(m.kneeAngle<115 && m.hipAngle<115) return "tuck";
-  if(m.kneeAngle<140 && m.hipAngle<155) return "adv_tuck";
-  if(m.ankleSpread>0.62 && m.kneeAngle>=145 && m.hipAngleMid>=145) return "straddle";
-  if(m.hipAngleMid>=155 && m.kneeAngle>=155 && m.ankleSpread<=0.62) return "full";
-  return "half";
-}
-const isTucked = v => v==="tuck" || v==="adv_tuck";
-
-/* ============================================================
-   5. 동작별 게이트 + 점수
-   ============================================================ */
-function evaluate(move, m){
-  const v = classifyVariation(m, move);
-  const tucked = isTucked(v);
-  // 턱 계열은 다리가 접혀 있으므로 정렬 기준선을 어깨→엉덩이로
-  const lineDev = tucked ? m.torsoHoriz : m.fullHoriz;
-  let gate = true, why = "";
-  const C = []; // components
-
-  const push=(label,score,weight,detail)=>C.push({label,score:Math.max(0,Math.min(1,score)),weight,detail});
-
-  if(move==="PLANCHE"){
-    gate = m.wristAbove < 0.25 && m.feetAboveHands > 0.35 && lineDev < 38 && m.ventralY > -0.35;
-    if(!gate) why = m.feetAboveHands<=0.35 ? "발이 손 높이보다 충분히 올라오지 않음(플랭크/푸시업 자세)" : "플란체 조건 아님";
-    push("수평",     ramp(lineDev, 8, 26), 0.34, lineDev.toFixed(0)+"°");
-    push("팔 폄",    ramp(180-m.elbowAngle, 10, 38), 0.24, m.elbowAngle.toFixed(0)+"°");
-    push("어깨 전방", rampUp(m.shoulderLean, 0.05, 0.38), 0.20, m.shoulderLean.toFixed(2));
-    if(tucked) push("엉덩이 높이", ramp(Math.abs(m.hipsAboveShoulders), 0.05, 0.22), 0.22, (m.hipsAboveShoulders*100).toFixed(0)+"%");
-    else       push("몸 일직선", ramp(180-m.hipAngleMid, 14, 45), 0.22, m.hipAngleMid.toFixed(0)+"°");
-  }
-  else if(move==="FRONT_LEVER" || move==="BACK_LEVER"){
-    const faceUp = m.ventralY < 0;
-    gate = m.wristAbove > 0.28 && lineDev < 40 && (move==="FRONT_LEVER" ? faceUp : !faceUp);
-    if(!gate) why = m.wristAbove<=0.28 ? "매달린 자세가 아님(손목이 어깨 위여야 함)" : "몸 방향이 다름";
-    push("수평",     ramp(lineDev, 8, 27), 0.38, lineDev.toFixed(0)+"°");
-    push("팔 폄",    ramp(180-m.elbowAngle, 10, 40), 0.24, m.elbowAngle.toFixed(0)+"°");
-    if(tucked) push("몸통 고정", ramp(Math.abs(m.hipsAboveShoulders), 0.05, 0.22), 0.22, (m.hipsAboveShoulders*100).toFixed(0)+"%");
-    else {
-      push("허리 처짐", ramp(m.hipSag, 0.05, 0.20), 0.14, (m.hipSag*100).toFixed(0)+"%");
-      push("몸 일직선", ramp(180-m.hipAngleMid, 14, 45), 0.12, m.hipAngleMid.toFixed(0)+"°");
-    }
-    push("어깨 각",  ramp(Math.abs(m.shoulderAngle-90), 22, 55), 0.16, m.shoulderAngle.toFixed(0)+"°");
-  }
-  else if(move==="L_SIT"){
-    gate = m.wristAbove < 0.25 && m.torsoVert < 32 && m.legHoriz < 35;
-    if(!gate) why = "L-sit 조건 아님(몸통 수직 + 다리 수평)";
-    push("몸통 수직", ramp(m.torsoVert, 8, 30), 0.30, m.torsoVert.toFixed(0)+"°");
-    push("다리 수평", ramp(m.legHoriz, 8, 30), 0.30, m.legHoriz.toFixed(0)+"°");
-    push("무릎 폄",   v==="tuck" ? 1 : ramp(180-m.kneeAngleMid, 12, 45), 0.24, m.kneeAngle.toFixed(0)+"°");
-    push("팔 폄",     ramp(180-m.elbowAngle, 12, 45), 0.16, m.elbowAngle.toFixed(0)+"°");
-  }
-  else if(move==="HANDSTAND"){
-    gate = m.wristAbove < 0.1 && m.hipsAboveShoulders > 0.15 && m.fullVert < 35;
-    if(!gate) why = "핸드스탠드 조건 아님(엉덩이가 어깨 위 + 전신 수직)";
-    push("전신 수직", ramp(m.fullVert, 6, 28), 0.45, m.fullVert.toFixed(0)+"°");
-    push("팔 폄",     ramp(180-m.elbowAngle, 10, 40), 0.25, m.elbowAngle.toFixed(0)+"°");
-    push("몸 일직선", ramp(180-m.hipAngleMid, 12, 45), 0.30, m.hipAngleMid.toFixed(0)+"°");
-  }
-
-  let total=0, wsum=0, minc=1;
-  for(const c of C){ total += c.score*c.weight; wsum += c.weight; minc=Math.min(minc,c.score); }
-  const avg = wsum ? (total/wsum)*100 : 0;
-  // 가장 나쁜 항목이 전체 점수를 제한 (한 곳이 크게 무너지면 평균만으로 통과하지 못하도록)
-  const score = Math.min(avg, 45 + 55*minc);
-  const worstC = C.length ? C.reduce((a,b)=> a.score<=b.score?a:b) : null;
-  return { move, variation:v, gate, why, score, components:C,
-           worst: (worstC && worstC.score < 0.9) ? worstC.label : null };
-}
-
-function classify(m, lock){
-  if(lock!=="auto"){
-    const r = evaluate(lock, m);
-    return r;
-  }
-  let best=null;
-  for(const k of Object.keys(MOVES)){
-    const r = evaluate(k, m);
-    if(!r.gate) continue;
-    if(!best || r.score>best.score) best=r;
-  }
-  return best || { move:null, variation:null, gate:false, score:0, components:[], why:"동작 인식 안 됨", worst:null };
-}
-
-/* ============================================================
-   6. 홀드 타이머 상태머신
-   ============================================================ */
-const T = {
-  state:"IDLE", move:null, variation:null,
-  startT:0, lastGoodT:0, brokenSince:0, armedSince:0,
-  cleanMs:0, lastT:0, scores:[], varCount:{}, worstCount:{}
-};
-function resetAttempt(){
-  T.state="IDLE"; T.move=null; T.variation=null; T.cleanMs=0;
-  T.scores=[]; T.varCount={}; T.worstCount={}; T.startT=0; T.brokenSince=0; T.armedSince=0;
-}
-function tickTimer(now, res){
-  const ok = res && res.gate && res.score >= S.threshold;
-  const okLoose = res && res.gate && res.score >= (S.threshold - 8); // 히스테리시스
-  const dt = T.lastT ? now - T.lastT : 0;
-  T.lastT = now;
-
-  if(T.state==="IDLE"){
-    if(ok){ T.state="ARMING"; T.armedSince=now; T.move=res.move; T.variation=res.variation; }
-  } else if(T.state==="ARMING"){
-    if(!ok){ T.state="IDLE"; return; }
-    if(res.move!==T.move){ T.move=res.move; T.armedSince=now; }
-    if(now-T.armedSince >= S.stableMs){
-      T.state="HOLDING"; T.startT = T.armedSince; T.lastGoodT=now; T.cleanMs=0;
-      T.scores=[]; T.varCount={}; T.worstCount={};
-      beep(880,90);
-    }
-  } else if(T.state==="HOLDING" || T.state==="BREAKING"){
-    if(res && res.move && res.move!==T.move && res.score>S.threshold){
-      // 다른 동작으로 완전히 전환 → 현재 시도 종료
-      endAttempt(now); return;
-    }
-    if(ok){
-      if(T.state==="BREAKING"){ T.state="HOLDING"; }
-      T.cleanMs += dt; T.lastGoodT = now; T.brokenSince = 0;
-      T.scores.push(res.score);
-      T.varCount[res.variation]=(T.varCount[res.variation]||0)+1;
-      if(res.worst) T.worstCount[res.worst]=(T.worstCount[res.worst]||0)+1;
-    } else if(okLoose){
-      // 경계 구간: 시간은 흐르지만 clean 누적 X
-      T.lastGoodT = now;
-    } else {
-      if(T.state==="HOLDING"){ T.state="BREAKING"; T.brokenSince=now; }
-      if(now - T.brokenSince > S.graceMs){ endAttempt(now); }
-    }
-  }
-}
-function currentElapsed(now){
-  if(T.state==="HOLDING") return now - T.startT;
-  if(T.state==="BREAKING") return T.brokenSince - T.startT;
-  if(T.state==="ARMING")  return 0;
-  return 0;
-}
-function endAttempt(now){
-  const durMs = Math.max(0, (T.brokenSince||now) - T.startT);
-  const move = T.move;
-  resetAttemptSoft();
-  if(!move || durMs < S.minValidMs){ beep(220,80); return; }
-  const variation = topKey(T.varCount) || "full";
-  const worst = topKey(T.worstCount);
-  const avg = T.scoresSnapshot.length ? T.scoresSnapshot.reduce((a,b)=>a+b,0)/T.scoresSnapshot.length : 0;
-  const min = T.scoresSnapshot.length ? Math.min(...T.scoresSnapshot) : 0;
-  const rec = {
-    id: Date.now()+"-"+Math.random().toString(36).slice(2,7),
-    ts: new Date().toISOString(), move, variation,
-    durationMs: Math.round(durMs), cleanMs: Math.round(T.cleanSnapshot),
-    avgScore: +avg.toFixed(1), minScore: +min.toFixed(1), worst
-  };
-  const wasPB = bestOf(move, variation) < rec.durationMs;
-  store.attempts.push(rec); save();
-  renderSession(); renderAll(); renderPB(); renderChart(); renderKPI();
-  beep(wasPB?1320:660,160);
-  const secTxt = (rec.durationMs/1000).toFixed(1);
-  toast(wasPB ? `새 PB! ${MOVES[move].ko} ${VAR_KO[variation]||variation} ${secTxt}초`
-              : `기록됨 · ${MOVES[move].ko} ${secTxt}초`);
-  speak(wasPB ? `신기록 ${secTxt}초` : `${secTxt}초`);
-}
-function resetAttemptSoft(){
-  T.scoresSnapshot = T.scores.slice(); T.cleanSnapshot = T.cleanMs;
-  T.state="IDLE"; T.brokenSince=0; T.armedSince=0;
-}
-T.scoresSnapshot=[]; T.cleanSnapshot=0;
-function topKey(o){ let k=null,v=-1; for(const key in o){ if(o[key]>v){v=o[key];k=key;} } return k; }
-function bestOf(move, variation){
-  return store.attempts.filter(a=>a.move===move && (!variation || a.variation===variation))
-    .reduce((mx,a)=>Math.max(mx,a.durationMs),0);
-}
-
-/* ============================================================
-   7. 소리 / 토스트
-   ============================================================ */
-let audioCtx=null;
-function unlockAudio(){ // iOS: 사용자 제스처 안에서 오디오/음성을 깨워둬야 함
-  try{
-    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state==="suspended") audioCtx.resume();
-    if(window.speechSynthesis){ const u=new SpeechSynthesisUtterance(" "); u.volume=0; speechSynthesis.speak(u); }
-  }catch(e){}
-}
-function speak(text){
-  if(!S.voice || !window.speechSynthesis) return;
-  try{ const u=new SpeechSynthesisUtterance(text); u.lang="ko-KR"; u.rate=1.05; speechSynthesis.speak(u); }catch(e){}
-}
-let wakeLock=null;
-async function acquireWake(){
-  if(!S.wake || !navigator.wakeLock) return;
-  try{ wakeLock = await navigator.wakeLock.request("screen"); }catch(e){}
-}
-function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock=null; }
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && running) acquireWake(); });
-
-function beep(freq, ms){
-  if(!S.sound) return;
-  try{
-    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-    o.frequency.value=freq; o.type="sine"; o.connect(g); g.connect(audioCtx.destination);
-    g.gain.setValueAtTime(0.14, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+ms/1000);
-    o.start(); o.stop(audioCtx.currentTime+ms/1000);
-  }catch(e){}
-}
-let toastTimer=null;
-function toast(msg){
-  const el=document.getElementById("toast"); el.textContent=msg; el.classList.add("on");
-  clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove("on"), 2600);
-}
-
-/* ============================================================
-   8. 카메라 / 모델 / 루프
-   ============================================================ */
-const video=document.getElementById("video");
-const overlay=document.getElementById("overlay");
-const ctx=overlay.getContext("2d");
-let landmarker=null, drawUtils=null, running=false, stream=null, rafId=null, lastVideoTime=-1, lastResult=null;
-const MODEL_URL = m => `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${m}/float16/latest/pose_landmarker_${m}.task`;
-
-async function initModel(){
-  setStatus("모델 로딩 중…", "load");
-  const build = async (fileset, delegate) => PoseLandmarker.createFromOptions(fileset, {
-    baseOptions:{ modelAssetPath: MODEL_URL(S.model), delegate },
-    runningMode:"VIDEO", numPoses:1,
-    minPoseDetectionConfidence:0.5, minPosePresenceConfidence:0.5, minTrackingConfidence:0.5,
-    outputSegmentationMasks:false
-  });
-  try{
-    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm");
-    if(landmarker){ try{ landmarker.close(); }catch(e){} landmarker=null; }
-    let delegateUsed = "GPU";
-    try{
-      landmarker = await build(fileset, "GPU");
-    }catch(gpuErr){
-      // 일부 모바일 별로는 WebGL 델리게이트가 안 도는 경우가 있어 CPU로 재시도
-      console.warn("GPU delegate 실패, CPU로 폴백:", gpuErr);
-      landmarker = await build(fileset, "CPU"); delegateUsed = "CPU";
-    }
-    drawUtils = new DrawingUtils(ctx);
-    setStatus(`모델 준비 완료 (${S.model}·${delegateUsed})`,"ok");
-    return true;
-  }catch(e){
-    console.error(e);
-    setStatus("모델 로딩 실패: "+(e && e.message ? e.message : e),"err");
-    toast("모델 로딩 실패 · 설정에서 '가벼움'으로 바꿔 보세요");
-    return false;
-  }
-}
-function setStatus(t, kind){
-  document.getElementById("statusText").textContent=t;
-  const d=document.getElementById("dotModel");
-  d.className="dot"+(kind==="ok"?" on":kind==="err"?" err":"");
-}
-async function listCams(){
-  try{
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const sel=document.getElementById("camSelect"); sel.innerHTML="";
-    const keep = sel.value;
-    sel.innerHTML = `<option value="">카메라 자동</option>`;
-    devs.filter(d=>d.kind==="videoinput").forEach((d,i)=>{
-      const o=document.createElement("option"); o.value=d.deviceId; o.textContent=d.label||("카메라 "+(i+1)); sel.appendChild(o);
-    });
-    if([...sel.options].some(o=>o.value===keep)) sel.value=keep;
-  }catch(e){}
-}
-async function startCamera(){
-  unlockAudio();
-  if(!landmarker && !(await initModel())) return;
-  try{
-    const devId = document.getElementById("camSelect").value;
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: devId ? {deviceId:{exact:devId}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30}}
-                   : {facingMode:{ideal:S.facing}, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30}},
-      audio:false
-    });
-    video.srcObject=stream; video.removeAttribute("src"); video.loop=false; video.controls=false;
-    await video.play();
-    await listCams();
-    await acquireWake();
-    startLoop();
-  }catch(e){
-    setStatus("카메라 접근 실패: "+e.message,"err");
-    toast("카메라 권한이 필요해요");
-  }
-}
-function stopAll(){
-  running=false;
-  if(rafId) cancelAnimationFrame(rafId);
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  video.pause();
-  releaseWake();
-  document.getElementById("btnStart").disabled=false;
-  document.getElementById("btnStop").disabled=true;
-  resetAttempt();
-}
-function startLoop(){
-  running=true; lastVideoTime=-1; T.lastT=0; resetAttempt();
-  document.getElementById("btnStart").disabled=true;
-  document.getElementById("btnStop").disabled=false;
-  loop();
-}
-async function loadVideoFile(file){
-  if(!landmarker && !(await initModel())) return;
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  video.srcObject=null; video.src=URL.createObjectURL(file); video.controls=true; video.loop=false;
-  await video.play();
-  startLoop();
-}
-
-let lastTickSec=-1;
 function loop(){
-  if(!running) return;
-  const now = performance.now();
-  if(video.readyState>=2 && video.videoWidth){
-    if(overlay.width!==video.videoWidth){
-      overlay.width=video.videoWidth; overlay.height=video.videoHeight;
-      // 세로 촬영 등 실제 영상 비율에 맞춰 화면을 조정 (모바일 필수)
-      document.getElementById("stage").style.aspectRatio = (video.videoWidth/video.videoHeight).toFixed(4);
-    }
-    if(video.currentTime !== lastVideoTime){
-      lastVideoTime = video.currentTime;
-      try{ lastResult = landmarker.detectForVideo(video, now); }catch(e){}
-    }
-    let res=null;
-    if(lastResult && lastResult.worldLandmarks && lastResult.worldLandmarks.length){
-      const m = computeMetrics(lastResult.worldLandmarks[0], lastResult.landmarks[0]);
-      if(m.conf > 0.35){
-        res = classify(m, document.getElementById("lockSelect").value);
-        res.metrics = m;
-      }
-    }
-    tickTimer(now, res);
-    draw(lastResult, res, now);
-    updateHUD(res, now);
-  }
-  rafId = requestAnimationFrame(loop);
+ if(!running)return;const wall=performance.now(),source=sourceTimeMs();
+ const ready=video.readyState>=2&&video.videoWidth;
+ const fresh=ready&&!video.paused&&!video.ended&&video.currentTime!==lastVideoTime;
+ if(!fresh){
+   if(video.paused||video.ended||wall-lastFreshWall>450){
+     trackingUnavailable(wall,source);
+     const frame={ok:false,message:video.ended?"영상 분석 완료":video.paused?"영상 재생과 측정이 멈췄습니다.":"영상 신호를 기다립니다. 측정 중단 중"};
+     draw(null,null,frame);updateHUD(null,frame,wall,false);
+   }
+   rafId=requestAnimationFrame(loop);return;
+ }
+ if(overlay.width!==video.videoWidth||overlay.height!==video.videoHeight){overlay.width=video.videoWidth;overlay.height=video.videoHeight;$("stage").style.aspectRatio=(video.videoWidth/video.videoHeight).toFixed(4)}
+ const mediaJump=lastVideoTime>=0?video.currentTime-lastVideoTime:0;
+ if(inputKind==="file"&&(mediaJump<-.05||mediaJump>1)){persistRepSession();resetRepSession();resetAttempt();toast("재생 위치 변경 · 새 측정 시작")}
+ lastVideoTime=video.currentTime;lastFreshWall=wall;
+ try{lastResult=landmarker.detectForVideo(video,performance.now())}catch(e){lastResult=null}
+ const norm=lastResult?.landmarks?.[0],world=lastResult?.worldLandmarks?.[0];let frame=assessFraming(norm),out=null;
+ if(frame.ok&&world){
+   const m=computeMetrics(world,norm);
+   if(m.conf>.35){
+     if(trackingGapAt!==null){pauseHoldClock(source);pauseRepClock(source);trackingGapAt=null}
+     if(S.measureMode==="hold"){out=classify(m,$("lockSelect").value);out.metrics=m;tickTimer(source,out)}else out=stepRep(source,m);
+   }else frame={ok:false,message:"관절 추적이 불안정합니다. 측면에서 전신을 보여주세요."};
+ }else if(!world)frame={ok:false,message:frame.message||"포즈 추적 대기"};
+ if(!frame.ok){if(S.measureMode==="reps"&&R.lastSourceMs!==null)R.sessionElapsedMs+=Math.max(0,Math.min(250,source-R.lastSourceMs));trackingUnavailable(wall,source)}
+ draw(lastResult,out,frame);updateHUD(out,frame,wall,true);rafId=requestAnimationFrame(loop);
+}
+function draw(result,out,frame){ctx.clearRect(0,0,overlay.width,overlay.height);if(!result?.landmarks?.length||!S.skeleton||!drawUtils)return;const color=!frame.ok?"#f8c65b":S.measureMode==="hold"?(T.state==="HOLDING"?"#57df8b":"#7b8497"):(R.phase==="BOTTOM"?"#f8c65b":"#6da9ff"),lm=result.landmarks[0];drawUtils.drawConnectors(lm,PoseLandmarker.POSE_CONNECTIONS,{color,lineWidth:4});drawUtils.drawLandmarks(lm,{color:"#fff",fillColor:color,lineWidth:1,radius:3})}
+function updateHUD(out,frame,wall,fresh){$("freshnessText").textContent=fresh?"실시간 프레임":"측정 일시정지";$("freshnessText").style.color=fresh&&frame.ok?"var(--acc)":"var(--warn)";$("frameWarning").classList.toggle("on",!frame.ok&&running);$("frameWarning").textContent=frame.message||"";$("framingDetails").textContent=frame.message||"포즈 대기";if(S.measureMode==="hold")updateHoldHUD(out);else updateRepHUD(out);if(inputKind==="file"&&(video.paused||video.ended))$("banner").textContent=video.ended?"영상 분석 완료 · 재생 위치를 옮기면 새 세션으로 초기화하는 것을 권장합니다.":"영상이 일시정지되어 측정 시간도 멈췄습니다.";void wall}
+function renderBars(items,progress){$("barsEmpty").classList.toggle("hidden",!!items.length);$("bars").innerHTML=items.map(c=>`<div class="bar"><div class="barTitle"><span>${c.label}</span><span class="priority ${c.priority==="필수"?"required":""}">${c.priority||"평가"}</span></div><div class="track"><div class="fill" style="width:${(clamp01(c.progress??c.score)*100).toFixed(0)}%;background:${c.pass?"var(--acc)":c.priority==="필수"?"var(--bad)":"var(--warn)"}"></div></div><div class="barValue"><span class="statusMark ${c.pass?"ok":"wait"}">${c.pass?"달성":"대기"}</span><br>${c.detail||c.fmt||""}</div></div>`).join("")+(progress==null?"":`<div class="bar"><div class="barTitle"><span>동작 진행도</span><span class="priority">상태</span></div><div class="track"><div class="fill" style="width:${(progress*100).toFixed(0)}%;background:var(--blue)"></div></div><div class="barValue">${(progress*100).toFixed(0)}%</div></div>`)}
+function updateHoldHUD(res){const sec=currentElapsed()/1000;$("primaryValue").innerHTML=sec.toFixed(1)+"<small>s</small>";$("stateLabel").textContent=T.state==="HOLDING"?"HOLDING":T.state==="BREAKING"?"흔들림 유예":T.state==="ARMING"?"안정화 중":"IDLE";if(S.tick&&T.state==="HOLDING"){const s5=Math.floor(sec/5);if(s5>0&&s5!==lastTickSec){lastTickSec=s5;beep(1046,55)}}else if(T.state!=="HOLDING")lastTickSec=-1;if(res?.gate){$("moveLabel").textContent=`${MOVES[res.move].ko} · ${VAR_KO[res.variation]||res.variation}`;$("secondaryValue").textContent=Math.round(res.score);$("secondaryValue").style.color=res.score>=S.threshold?"var(--acc)":res.score>=S.threshold-12?"var(--warn)":"var(--bad)";const pb=bestOf(res.move,res.variation);$("secondaryBadge").textContent=pb?`PB ${(pb/1000).toFixed(1)}s`:"PB 없음";renderBars(res.components.map(c=>({...c,progress:c.score,pass:c.score>=.72})));const m=res.metrics;$("metricHint").textContent=`팔꿈치 ${m.elbowAngle.toFixed(0)}° · 고관절 ${m.hipAngle.toFixed(0)}° · 무릎 ${m.kneeAngle.toFixed(0)}° · 어깨 ${m.shoulderAngle.toFixed(0)}° · 전신 기울기 ${m.fullHoriz.toFixed(0)}° · 신뢰도 ${(m.conf*100).toFixed(0)}%`;const weakest=res.components.reduce((a,b)=>a.score<b.score?a:b);const cues={"수평":"몸통과 다리를 수평선에 가깝게 맞춰보세요.","다리 수평":"발 높이를 조절해 다리를 수평으로 맞춰보세요.","팔 폄":"무리하지 않는 범위에서 팔꿈치를 펴보세요.","무릎 폄":"무릎이 굽지 않는지 확인해보세요.","몸통 수직":"몸통이 기울지 않는지 확인해보세요.","몸 일직선":"어깨·골반·발목의 정렬을 확인해보세요."};$("banner").textContent=res.worst?`우선 보완 · ${weakest.label} ${weakest.detail}. ${cues[weakest.label]||"측정값과 자세를 함께 확인하세요."}`:"기준을 안정적으로 충족하고 있습니다."}else{$("moveLabel").textContent=res?.why||"홀드 인식 대기";$("secondaryValue").textContent="--";$("secondaryValue").style.color="var(--dim)";$("secondaryBadge").textContent="PB --";renderBars([]);$("metricHint").textContent=""}}
+function updateRepHUD(out){$("primaryValue").innerHTML=R.good+"<small> reps</small>";$("moveLabel").textContent=REP_MOVES[R.move].ko+" · 실험 판정";$("stateLabel").textContent=R.pending?"상단 신전 확인 중":R.phase==="BOTTOM"?"하단 구간":"상단 구간";$("secondaryValue").textContent=fmtClock(repClockSeconds());$("secondaryValue").style.color="var(--txt)";$("secondaryBadge").textContent=`NO REP ${R.bad}`;if(out){renderBars(out.checks.map(c=>({...c,progress:c.prog,detail:c.fmt})),out.sig);const m=out.metrics;$("metricHint").textContent=`팔꿈치 ${m.elbowAngle.toFixed(0)}° · 고관절 ${m.hipAngle.toFixed(0)}° · 무릎 ${m.kneeAngle.toFixed(0)}° · 코-손목선 ${(m.noseAboveWrist*100).toFixed(0)}% · 신뢰도 ${(m.conf*100).toFixed(0)}%`;$("banner").textContent=R.pending?"상단 필수 기준을 달성하면 렙 판정을 확정합니다.":REP_MOVES[R.move].doc}else{renderBars([]);$("metricHint").textContent=""}const workout=$("repWorkout").value,target=+$("repTarget").value;if(workout==="amrap"&&R.sessionElapsedMs>=target*60000&&running){persistRepSession();stopMedia();speak("타임")}if(workout==="fortime"&&R.good>=target&&running){persistRepSession();stopMedia();speak("완료")}}
+function repClockSeconds(){const workout=$("repWorkout").value,target=+$("repTarget").value,elapsed=R.sessionElapsedMs/1000;return workout==="amrap"?Math.max(0,target*60-elapsed):elapsed}const fmtClock=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
+
+const fmt=ms=>(ms/1000).toFixed(1)+"s",dayKey=iso=>new Date(iso).toLocaleDateString("sv-SE");let sessionStart=Date.now();function todayAttempts(){const t=dayKey(new Date().toISOString());return store.attempts.filter(a=>dayKey(a.ts)===t)}function todayRepSessions(){const t=dayKey(new Date().toISOString());return store.repSessions.filter(a=>dayKey(a.ts)===t)}
+function renderKPI(){if(S.measureMode==="hold"){const a=todayAttempts();$("summaryTitle").textContent="오늘 홀드 요약";[["kpiL1","최고 홀드"],["kpiL2","총 홀드 시간"],["kpiL3","시도 횟수"],["kpiL4","평균 자세 점수"]].forEach(([id,t])=>$(id).textContent=t);$("kpi1").textContent=a.length?fmt(Math.max(...a.map(x=>x.durationMs))):"-";$("kpi2").textContent=a.length?fmt(a.reduce((s,x)=>s+x.durationMs,0)):"-";$("kpi3").textContent=a.length||"-";$("kpi4").textContent=a.length?(a.reduce((s,x)=>s+x.avgScore,0)/a.length).toFixed(0):"-"}else{const sessions=todayRepSessions(),totalGood=sessions.reduce((s,x)=>s+x.good,0),totalBad=sessions.reduce((s,x)=>s+x.bad,0),live=R.good+R.bad?1:0;$("summaryTitle").textContent="반복 세션 요약";[["kpiL1","현재 유효 렙"],["kpiL2","현재 NO REP"],["kpiL3","오늘 저장 세션"],["kpiL4","현재 유효율"]].forEach(([id,t])=>$(id).textContent=t);$("kpi1").textContent=R.good;$("kpi2").textContent=R.bad;$("kpi3").textContent=sessions.length+(live&&!R.sessionId?1:0);$("kpi4").textContent=R.good+R.bad?Math.round(R.good/(R.good+R.bad)*100)+"%":"-";void totalGood;void totalBad}}
+function renderSession(){const tb=document.querySelector("#sessionTable tbody"),rows=store.attempts.filter(a=>new Date(a.ts).getTime()>=sessionStart).slice().reverse();tb.innerHTML=rows.map(a=>`<tr><td>${new Date(a.ts).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</td><td>${MOVES[a.move]?.ko||a.move}<br><span class="pill">${VAR_KO[a.variation]||a.variation}</span></td><td class="num"><b>${fmt(a.durationMs)}</b></td><td class="num">${a.avgScore}</td><td><button class="btn" data-del-hold="${a.id}" style="padding:3px 7px">삭제</button></td></tr>`).join("");if(S.measureMode==="hold")$("sessionEmpty").classList.toggle("hidden",!!rows.length)}
+function renderRepLive(){const tb=document.querySelector("#repLiveTable tbody"),rows=R.reps.slice().reverse().slice(0,40);tb.innerHTML=rows.map(r=>`<tr><td class="num">${r.n}</td><td class="num">${fmt(r.durationMs)}</td><td class="${r.valid?"tagOk":"tagBad"}">${r.valid?"유효":"NO REP"}</td><td>${r.reason||"기준 달성"}</td></tr>`).join("");if(S.measureMode==="reps")$("sessionEmpty").classList.toggle("hidden",!!rows.length)}
+function renderAll(){const tb=document.querySelector("#allTable tbody"),rows=store.attempts.slice().reverse().slice(0,300);tb.innerHTML=rows.map(a=>`<tr><td>${new Date(a.ts).toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>${MOVES[a.move]?.ko||a.move}</td><td><span class="pill">${VAR_KO[a.variation]||a.variation}</span></td><td class="num"><b>${fmt(a.durationMs)}</b></td><td class="num">${fmt(a.cleanMs)}</td><td class="num">${a.avgScore}</td><td>${a.worst||"-"}</td><td><button class="btn" data-del-hold="${a.id}" style="padding:3px 7px">삭제</button></td></tr>`).join("");$("allEmpty").classList.toggle("hidden",!!rows.length)}
+function renderPB(){const g={};for(const a of store.attempts){const k=a.move+"|"+a.variation;g[k]=g[k]||{move:a.move,variation:a.variation,best:0,last:0,lastTs:0,n:0};g[k].n++;g[k].best=Math.max(g[k].best,a.durationMs);const t=new Date(a.ts).getTime();if(t>g[k].lastTs){g[k].lastTs=t;g[k].last=a.durationMs}}const rows=Object.values(g).sort((x,y)=>x.move===y.move?y.best-x.best:x.move.localeCompare(y.move));document.querySelector("#pbTable tbody").innerHTML=rows.length?rows.map(r=>`<tr><td>${MOVES[r.move]?.ko||r.move}</td><td><span class="pill">${VAR_KO[r.variation]||r.variation}</span></td><td class="num"><b>${fmt(r.best)}</b></td><td class="num">${fmt(r.last)}</td><td class="num">${r.n}</td></tr>`).join(""):'<tr><td colspan="5" class="empty">개인 기록이 없습니다.</td></tr>'}
+function renderVarOptions(){const move=$("histMove").value,sel=$("histVar"),cur=sel.value,vars=[...new Set(store.attempts.filter(a=>a.move===move).map(a=>a.variation))];sel.innerHTML='<option value="all">모든 변형</option>'+vars.map(v=>`<option value="${v}">${VAR_KO[v]||v}</option>`).join("");if([...sel.options].some(o=>o.value===cur))sel.value=cur}
+function renderChart(){renderAxisTrends();const cv=$("chart"),move=$("histMove").value,vf=$("histVar").value,days=+$("histRange").value,cutoff=Date.now()-days*86400000,data=store.attempts.filter(a=>a.move===move&&(vf==="all"||a.variation===vf)&&new Date(a.ts).getTime()>=cutoff),byDay={};for(const a of data){const k=dayKey(a.ts);(byDay[k] ||= []).push(a)}const pts=Object.keys(byDay).sort().map(k=>{const arr=byDay[k].slice().sort((x,y)=>y.durationMs-x.durationMs),top3=arr.slice(0,3);return{day:k,best:arr[0].durationMs/1000,top3:top3.reduce((s,x)=>s+x.durationMs,0)/top3.length/1000,score:arr.reduce((s,x)=>s+x.avgScore,0)/arr.length}}),dpr=devicePixelRatio||1,W=cv.clientWidth||600,H=260;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+"px";const c=cv.getContext("2d");c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);const pad={l:42,r:14,t:16,b:30},maxY=Math.max(5,...pts.map(p=>p.best))*1.15;c.strokeStyle="#2a3240";c.fillStyle="#9099ad";c.font="11px sans-serif";for(let i=0;i<=4;i++){const y=pad.t+(H-pad.t-pad.b)*i/4,val=maxY*(1-i/4);c.beginPath();c.moveTo(pad.l,y);c.lineTo(W-pad.r,y);c.stroke();c.fillText(val.toFixed(0)+"s",6,y+4)}if(!pts.length){c.fillText("이 동작의 기록이 아직 없습니다",Math.max(20,W/2-82),H/2);return}const n=pts.length,X=i=>pad.l+(W-pad.l-pad.r)*(n===1?.5:i/(n-1)),Y=v=>pad.t+(H-pad.t-pad.b)*(1-v/maxY),bw=Math.max(6,Math.min(26,(W-pad.l-pad.r)/Math.max(n,1)*.5));pts.forEach((p,i)=>{c.fillStyle="#1d4a34";c.fillRect(X(i)-bw/2,Y(p.best),bw,H-pad.b-Y(p.best))});c.strokeStyle="#6da9ff";c.lineWidth=2;c.beginPath();pts.forEach((p,i)=>i?c.lineTo(X(i),Y(p.top3)):c.moveTo(X(i),Y(p.top3)));c.stroke();pts.forEach((p,i)=>{c.fillStyle=p.score>=80?"#57df8b":p.score>=68?"#f8c65b":"#fb7777";c.beginPath();c.arc(X(i),Y(p.best),4,0,7);c.fill()});c.fillStyle="#9099ad";c.font="10px sans-serif";const step=Math.ceil(n/8);pts.forEach((p,i)=>{if(i%step===0||i===n-1)c.fillText(p.day.slice(5),X(i)-14,H-10)})}
+function renderRepHistory(){const rows=store.repSessions.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts));document.querySelector("#repHistoryTable tbody").innerHTML=rows.map(s=>{const durs=(s.reps||[]).map(r=>r.durationMs).filter(x=>x>=MIN_REP_MS&&x<=MAX_REP_MS),avg=durs.length?fmt(durs.reduce((a,b)=>a+b,0)/durs.length):"-",work=s.workout==="amrap"?`AMRAP ${s.target}분`:s.workout==="fortime"?`For Time ${s.target}회`:"자유";return`<tr><td>${new Date(s.ts).toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>${REP_NAMES[s.move]||s.move}</td><td>${work}</td><td class="num tagOk">${s.good}</td><td class="num tagBad">${s.bad}</td><td class="num">${fmt(s.durationMs)}</td><td class="num">${avg}</td><td><button class="btn" data-del-rep="${s.id}" style="padding:3px 7px">삭제</button></td></tr>`}).join("");$("repHistoryEmpty").classList.toggle("hidden",!!rows.length)}function renderAllData(){renderSession();renderAll();renderPB();renderVarOptions();renderChart();renderRepHistory();renderKPI()}
+
+function setMeasureMode(mode){if(mode!=="hold"&&mode!=="reps")return;S.measureMode=mode;save();document.querySelectorAll("#measureMode button").forEach(b=>b.classList.toggle("on",b.dataset.mode===mode));$("holdControls").classList.toggle("hidden",mode!=="hold");$("repControls").classList.toggle("hidden",mode!=="reps");$("sessionTable").classList.toggle("hidden",mode!=="hold");$("repLiveTable").classList.toggle("hidden",mode!=="reps");$("analysisTitle").textContent=mode==="hold"?"실시간 자세 평가":"렙 기준 · 우선순위 · 달성 상태";$("sessionTitle").textContent=mode==="hold"?"이번 홀드 세션":"현재 반복 세션";$("experimentLabel").textContent=mode==="hold"?"포즈 추정 기반 실험 기능":"실험 판정 · 심판 대체 아님";$("tips").innerHTML=mode==="hold"?'<b>홀드</b>는 측면 전신 구도가 가장 안정적입니다.<br>손·발·머리가 잘리면 측정을 일시정지합니다.<br><span class="warnText">세로 화면에서는 가로 촬영을 권장합니다.</span>':'<b>반복</b>은 에어 스쿼트·푸시업·풀업만 지원합니다.<br>동작별 기준은 각도와 화면상 상대 위치 프록시입니다.<br><span class="warnText">세로 화면에서는 가로 촬영을 권장합니다.</span>';$("honesty").textContent=mode==="hold"?"AI 포즈 좌표로 각도와 상대 위치를 추정합니다. 실제 접촉이나 기구를 직접 감지하지 않습니다.":REP_MOVES[R.move].doc+" 자동 판정은 코칭 참고용이며 경기 심판 판정을 대체하지 않습니다.";$("sessionEmpty").textContent=mode==="hold"?"아직 저장된 홀드가 없습니다. 기준 점수 이상을 최소 시간 동안 유지하면 자동 저장됩니다.":"아직 판정된 렙이 없습니다. 상단 → 하단 → 상단 사이클을 완료하세요.";if(mode==="hold"){resetRepSession();$("banner").textContent="측면에서 손·발·머리가 모두 보이도록 전신을 프레임에 넣어 주세요.";updateHoldHUD(null)}else{resetAttempt();$("banner").textContent=REP_MOVES[R.move].doc;updateRepHUD(null)}renderRepLive();renderKPI()}
+function setHistoryMode(mode){document.querySelectorAll("#historyMode button").forEach(b=>b.classList.toggle("on",b.dataset.history===mode));$("holdHistory").classList.toggle("hidden",mode!=="hold");$("repHistory").classList.toggle("hidden",mode!=="reps");if(mode==="hold")renderChart();else renderRepHistory()}
+function updateWorkoutUI(){const w=$("repWorkout").value;$("repTarget").classList.toggle("hidden",w==="free");$("repTargetUnit").textContent=w==="amrap"?"분":w==="fortime"?"목표 렙":""}
+function applyMirror(){video.classList.toggle("mirror",S.mirror);overlay.classList.toggle("mirror",S.mirror)}function updateFacingLabel(){$("btnFacing").textContent=S.facing==="environment"?"전면으로 전환":"후면으로 전환"}
+
+$("btnStart").onclick=startCamera;$("btnStop").onclick=()=>{persistRepSession();stopMedia()};$("fileInput").onchange=e=>{if(e.target.files[0])loadVideoFile(e.target.files[0])};$("btnMirror").onclick=()=>{S.mirror=!S.mirror;save();applyMirror()};$("btnFacing").onclick=async()=>{const was=running&&inputKind==="camera";S.facing=S.facing==="environment"?"user":"environment";S.selectedDeviceId="";$("camSelect").value="";save();updateFacingLabel();if(was)await startCamera()};$("camSelect").onchange=async()=>{S.selectedDeviceId=$("camSelect").value;save();if(running&&inputKind==="camera")await startCamera()};$("zoomSlider").oninput=async()=>{if(!activeTrack||!currentZoomCaps)return;const z=+$("zoomSlider").value;try{await activeTrack.applyConstraints({advanced:[{zoom:z}]});const actual=activeTrack.getSettings().zoom??z;$("zoomValue").textContent=(+actual).toFixed(1)+"×"}catch(e){toast("이 렌즈에서 줌 변경을 적용하지 못했습니다")}};$("btnFull").onclick=()=>{const el=$("stage");if(document.fullscreenElement)document.exitFullscreen();else if(el.requestFullscreen)el.requestFullscreen();else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen()};$("btnDiscard").onclick=()=>{resetAttempt();toast("현재 홀드 시도 취소")};$("btnRepReset").onclick=()=>{persistRepSession();resetRepSession();toast("새 반복 세션 시작")};$("repMove").onchange=()=>{persistRepSession();R.move=$("repMove").value;resetRepSession();$("honesty").textContent=REP_MOVES[R.move].doc+" 자동 판정은 코칭 참고용이며 경기 심판 판정을 대체하지 않습니다."};$("repWorkout").onchange=()=>{updateWorkoutUI();if(R.reps.length){persistRepSession();resetRepSession()}};$("repTarget").onchange=()=>{if(R.reps.length){persistRepSession();resetRepSession()}};document.querySelectorAll("#measureMode button").forEach(b=>b.onclick=()=>setMeasureMode(b.dataset.mode));document.querySelectorAll("#historyMode button").forEach(b=>b.onclick=()=>setHistoryMode(b.dataset.history));
+const views={tabMeasure:"viewMeasure",tabHistory:"viewHistory",tabSettings:"viewSettings"};Object.keys(views).forEach(t=>$(t).onclick=()=>{Object.keys(views).forEach(k=>{$(k).classList.toggle("on",k===t);$(views[k]).classList.toggle("hidden",k!==t)});if(t==="tabHistory")renderAllData()});["histMove","histVar","histRange"].forEach(id=>$(id).onchange=()=>{if(id==="histMove")renderVarOptions();renderChart()});
+document.body.addEventListener("click",e=>{const h=e.target.getAttribute?.("data-del-hold"),r=e.target.getAttribute?.("data-del-rep");if(h){store.attempts=store.attempts.filter(a=>a.id!==h);save();renderAllData()}if(r){store.repSessions=store.repSessions.filter(a=>a.id!==r);if(R.sessionId===r)R.sessionId=null;save();renderAllData()}});
+function bindRange(id,key,fmtf){const el=$(id),out=$("v"+id.slice(3));el.value=S[key];out.textContent=fmtf(S[key]);el.oninput=()=>{S[key]=+el.value;out.textContent=fmtf(S[key]);save()}}function bindCheck(id,key){const el=$(id);el.checked=!!S[key];el.onchange=()=>{S[key]=el.checked;save()}}bindRange("setThreshold","threshold",v=>v+"점");bindRange("setGrace","graceMs",v=>(v/1000).toFixed(1)+"초");bindRange("setStable","stableMs",v=>(v/1000).toFixed(1)+"초");bindRange("setMinValid","minValidMs",v=>(v/1000).toFixed(1)+"초");bindRange("setTilt","tiltCalib",v=>(+v).toFixed(1)+"°");bindCheck("setSound","sound");bindCheck("setVoice","voice");bindCheck("setWake","wake");bindCheck("setTick","tick");bindCheck("setSkeleton","skeleton");$("setModel").value=S.model;$("setModel").onchange=()=>{S.model=$("setModel").value;save()};$("btnReloadModel").onclick=async()=>{const was=running,kind=inputKind;await stopMedia();await initModel();if(was&&kind==="camera")startCamera()};$("btnResetSettings").onclick=()=>{Object.assign(S,DEFAULTS);save();location.reload()};
+function download(name,text,type){const b=new Blob([text],{type}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),0)}$("btnExportJson").onclick=()=>download("formtrack-"+dayKey(new Date().toISOString())+".json",JSON.stringify(store,null,2),"application/json");$("btnExportCsv").onclick=()=>{const holdHead="type,ts,move,variation,duration_s,clean_s,avg_score,min_score,worst\n",hold=store.attempts.map(a=>["hold",a.ts,a.move,a.variation,(a.durationMs/1000).toFixed(2),(a.cleanMs/1000).toFixed(2),a.avgScore,a.minScore,a.worst||""].join(",")),repHead="\ntype,ts,move,workout,target,duration_s,good,bad,avg_rep_s\n",rep=store.repSessions.map(s=>{const ds=(s.reps||[]).map(r=>r.durationMs).filter(Boolean);return["reps",s.ts,s.move,s.workout,s.target??"",(s.durationMs/1000).toFixed(2),s.good,s.bad,ds.length?(ds.reduce((a,b)=>a+b,0)/ds.length/1000).toFixed(2):""].join(",")});download("formtrack.csv",holdHead+hold.join("\n")+repHead+rep.join("\n"),"text/csv")};$("importInput").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result),holdIds=new Set(store.attempts.map(a=>a.id)),repIds=new Set(store.repSessions.map(a=>a.id));(d.attempts||[]).forEach(a=>{if(!holdIds.has(a.id))store.attempts.push(a)});(d.repSessions||[]).forEach(a=>{if(!repIds.has(a.id))store.repSessions.push(a)});store.attempts.sort((a,b)=>new Date(a.ts)-new Date(b.ts));store.repSessions.sort((a,b)=>new Date(a.ts)-new Date(b.ts));save();renderAllData();toast("홀드·반복 데이터 가져오기 완료")}catch(err){toast("가져오기 실패")}};r.readAsText(f)};$("btnDemo").onclick=()=>{if(!confirm("6주 홀드 데모 데이터를 추가할까요?"))return;const now=Date.now(),rnd=(a,b)=>a+Math.random()*(b-a);for(let d=41;d>=0;d-=2){const day=now-d*86400000,prog=(42-d)/42;for(let s=0;s<3;s++){const dur=Math.max(3,(9+prog*14)*rnd(.72,1.06)-s*1.2);store.attempts.push({id:"demo"+d+"a"+s,ts:new Date(day+s*240000).toISOString(),move:"FRONT_LEVER",variation:prog>.6?"adv_tuck":"tuck",durationMs:Math.round(dur*1000),cleanMs:Math.round(dur*920),avgScore:+(72+prog*16+rnd(-4,4)).toFixed(1),minScore:70,worst:"수평"})}}save();renderAllData();toast("홀드 데모 추가")};$("btnWipe").onclick=()=>{if(confirm("홀드와 반복 기록을 모두 삭제할까요?")){store.attempts=[];store.repSessions=[];resetRepSession();save();renderAllData()}};
+$("logicDoc").innerHTML=`<div class="logicBlock"><b>공통 프레이밍</b><br>머리·보이는 손목·발/발목·몸통이 보이지 않거나 화면 경계에 닿으면 해당 프레임의 측정을 멈춥니다. 영상 재생이 일시정지되거나 새 프레임이 없을 때도 시간과 상태를 진행하지 않습니다.</div><div class="logicBlock"><b>홀드 엔진</b><br>기존 5개 홀드의 게이트, 변형 분류, 점수, 안정화·유예 상태머신과 기록/PB/차트를 유지합니다. 측정 시간은 처리된 새 미디어 프레임의 타임스탬프만 누적합니다.</div><div class="logicBlock"><b>반복 엔진 (실험)</b><br><b>에어 스쿼트</b>: 고관절-무릎 상대 높이 + 상단 신전.<br><b>푸시업</b>: 팔꿈치 굽힘/신전 + 몸통 정렬 + 어깨-손목 높이 프록시. 실제 가슴 접촉은 감지하지 않습니다.<br><b>풀업</b>: 코-손목선 상대 위치 + 팔꿈치 신전. 실제 바 위치나 턱-바 통과는 감지하지 않습니다.<br>검증되지 않은 버피·싯업은 제공하지 않습니다.</div><div class="logicBlock"><b>카메라</b><br>브라우저가 zoom capability를 제공할 때만 실제 트랙 줌 범위를 표시하고, 시작 시 지원되는 최소 줌을 적용합니다. CSS 가짜 줌은 사용하지 않습니다.</div>`;
+
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&running)acquireWake()});window.addEventListener("resize",()=>{if(!$("viewHistory").classList.contains("hidden")&&!$("holdHistory").classList.contains("hidden"))renderChart()});window.addEventListener("beforeunload",()=>persistRepSession());
+
+function renderAxisTrends(){
+ const move=$("histMove").value,variation=$("histVar").value,days=+$("histRange").value;
+ const records=store.attempts.filter(a=>a.move===move&&(variation==="all"||a.variation===variation)&&Date.now()-new Date(a.ts).getTime()<=days*86400000).sort((a,b)=>new Date(a.ts)-new Date(b.ts));
+ const groups=new Map();for(const a of records)for(const c of a.components||[]){if(!groups.has(c.label))groups.set(c.label,[]);groups.get(c.label).push(c)}
+ const root=$("axisTrends");root.replaceChildren();
+ if(!groups.size){root.textContent="첫 측정 후 수평·팔 폄 등 항목별 변화가 쌓입니다.";root.classList.add("hint");return}root.classList.remove("hint");
+ for(const[label,values]of groups){const v=values.slice(-20),last=v[v.length-1],delta=last.score-v[0].score,tile=document.createElement("div");tile.className="trendTile";const name=document.createElement("small");name.textContent=label;const val=document.createElement("strong");val.textContent=Math.round(last.score)+"점";const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("viewBox","0 0 160 42");const line=document.createElementNS(svg.namespaceURI,"polyline");line.setAttribute("points",v.map((x,i)=>((i/Math.max(1,v.length-1))*150+5)+","+(37-clamp01(x.score/100)*32)).join(" "));line.setAttribute("fill","none");line.setAttribute("stroke","#57df8b");line.setAttribute("stroke-width","2");svg.appendChild(line);const detail=document.createElement("small");detail.textContent=v.length>1?(delta>=0?"+":"")+delta.toFixed(1)+"점 · 최근 "+v.length+"회":"비교 기록을 모으는 중";tile.append(name,val,svg,detail);root.appendChild(tile)}
 }
 
-/* ============================================================
-   9. 그리기 / HUD
-   ============================================================ */
-function draw(result, res, now){
-  ctx.clearRect(0,0,overlay.width,overlay.height);
-  if(!result || !result.landmarks || !result.landmarks.length) return;
-  if(!S.skeleton) return;
-  const lm = result.landmarks[0];
-  const holding = T.state==="HOLDING";
-  const color = holding ? "#4ade80" : (res && res.gate ? "#fbbf24" : "#7c8496");
-  drawUtils.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, {color, lineWidth:4});
-  drawUtils.drawLandmarks(lm, {color:"#fff", fillColor:color, lineWidth:1, radius:4});
-  // 어깨-발목 기준선
-  if(res && res.metrics){
-    const a=lm[11], b=lm[12], c=lm[27], d=lm[28];
-    const s={x:(a.x+b.x)/2*overlay.width, y:(a.y+b.y)/2*overlay.height};
-    const e={x:(c.x+d.x)/2*overlay.width, y:(c.y+d.y)/2*overlay.height};
-    ctx.save(); ctx.strokeStyle=color; ctx.setLineDash([8,8]); ctx.lineWidth=2; ctx.globalAlpha=.8;
-    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(e.x,e.y); ctx.stroke(); ctx.restore();
-  }
-}
-
-const barsEl=document.getElementById("bars");
-function updateHUD(res, now){
-  const el = currentElapsed(now);
-  const secs = el/1000;
-  document.getElementById("timer").innerHTML = secs.toFixed(1)+"<small>s</small>";
-  const st = document.getElementById("stateLabel");
-  st.textContent = T.state==="HOLDING" ? "HOLDING" : T.state==="BREAKING" ? "흔들림…" : T.state==="ARMING" ? "준비…" : "IDLE";
-  st.style.color = T.state==="HOLDING" ? "#4ade80" : T.state==="BREAKING" ? "#fbbf24" : "#e6eaf2";
-
-  if(S.tick && T.state==="HOLDING"){
-    const s5 = Math.floor(secs/5);
-    if(s5>0 && s5!==lastTickSec){ lastTickSec=s5; beep(1046,55); }
-  } else if(T.state!=="HOLDING") lastTickSec=-1;
-
-  const ml = document.getElementById("moveLabel");
-  const sb = document.getElementById("scoreBig");
-  if(res && res.gate){
-    ml.textContent = `${MOVES[res.move].ko} · ${VAR_KO[res.variation]||res.variation}`;
-    sb.textContent = Math.round(res.score);
-    sb.style.color = res.score>=S.threshold ? "#4ade80" : res.score>=S.threshold-12 ? "#fbbf24" : "#f87171";
-    const pb = bestOf(res.move, res.variation);
-    document.getElementById("pbLabel").textContent = pb ? `PB ${(pb/1000).toFixed(1)}s` : "PB 없음";
-    renderBars(res);
-    document.getElementById("banner").textContent =
-      res.worst ? `가장 아쉬운 항목: ${res.worst}` : "";
-  } else {
-    ml.textContent = res && res.why ? res.why : "동작 인식 대기";
-    sb.textContent = "--"; sb.style.color="#8b93a7";
-    barsEl.innerHTML="";
-    document.getElementById("metricHint").textContent="";
-  }
-}
-function renderBars(res){
-  barsEl.innerHTML = res.components.map(c=>`
-    <div class="bar"><div class="t">${c.label}</div>
-      <div class="track"><div class="fill" style="width:${(c.score*100).toFixed(0)}%;background:${c.score>0.75?"#4ade80":c.score>0.45?"#fbbf24":"#f87171"}"></div></div>
-      <div class="v">${c.detail}</div></div>`).join("");
-  const m=res.metrics;
-  if(m) document.getElementById("metricHint").innerHTML =
-    `팔꿈치 ${m.elbowAngle.toFixed(0)}° · 고관절 ${m.hipAngle.toFixed(0)}° · 무릎 ${m.kneeAngle.toFixed(0)}° · 어깨각 ${m.shoulderAngle.toFixed(0)}° · 전신 기울기 ${m.fullHoriz.toFixed(0)}° · 인식 신뢰도 ${(m.conf*100).toFixed(0)}%`;
-}
-
-/* ============================================================
-   10. 기록 렌더링
-   ============================================================ */
-const fmt = ms => (ms/1000).toFixed(1)+"s";
-const dayKey = iso => new Date(iso).toLocaleDateString("sv-SE"); // YYYY-MM-DD
-function todayAttempts(){ const t=dayKey(new Date().toISOString()); return store.attempts.filter(a=>dayKey(a.ts)===t); }
-
-function renderKPI(){
-  const a=todayAttempts();
-  document.getElementById("kpiBest").textContent  = a.length? fmt(Math.max(...a.map(x=>x.durationMs))) : "-";
-  document.getElementById("kpiTotal").textContent = a.length? fmt(a.reduce((s,x)=>s+x.durationMs,0)) : "-";
-  document.getElementById("kpiCount").textContent = a.length||"-";
-  document.getElementById("kpiScore").textContent = a.length? (a.reduce((s,x)=>s+x.avgScore,0)/a.length).toFixed(0) : "-";
-}
-let sessionStart = Date.now();
-function renderSession(){
-  const tb=document.querySelector("#sessionTable tbody");
-  const rows = store.attempts.filter(a=>new Date(a.ts).getTime()>=sessionStart).slice().reverse();
-  document.getElementById("sessionEmpty").style.display = rows.length? "none":"block";
-  tb.innerHTML = rows.map(a=>`<tr>
-    <td>${new Date(a.ts).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</td>
-    <td>${MOVES[a.move].ko}<br><span class="pill">${VAR_KO[a.variation]||a.variation}</span></td>
-    <td class="num"><b>${fmt(a.durationMs)}</b></td>
-    <td class="num">${a.avgScore}</td>
-    <td><button class="btn" data-del="${a.id}" style="padding:3px 8px">삭제</button></td></tr>`).join("");
-}
-function renderAll(){
-  const tb=document.querySelector("#allTable tbody");
-  tb.innerHTML = store.attempts.slice().reverse().slice(0,300).map(a=>`<tr>
-    <td>${new Date(a.ts).toLocaleString("ko-KR",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>
-    <td>${MOVES[a.move].ko}</td><td><span class="pill">${VAR_KO[a.variation]||a.variation}</span></td>
-    <td class="num"><b>${fmt(a.durationMs)}</b></td><td class="num">${fmt(a.cleanMs)}</td>
-    <td class="num">${a.avgScore}</td><td>${a.worst||"-"}</td>
-    <td><button class="btn" data-del="${a.id}" style="padding:3px 8px">삭제</button></td></tr>`).join("");
-}
-function renderPB(){
-  const tb=document.querySelector("#pbTable tbody");
-  const g={};
-  for(const a of store.attempts){
-    const k=a.move+"|"+a.variation;
-    g[k]=g[k]||{move:a.move,variation:a.variation,best:0,last:0,lastTs:0,n:0};
-    g[k].n++; g[k].best=Math.max(g[k].best,a.durationMs);
-    const t=new Date(a.ts).getTime(); if(t>g[k].lastTs){g[k].lastTs=t; g[k].last=a.durationMs;}
-  }
-  const rows=Object.values(g).sort((x,y)=> x.move===y.move ? y.best-x.best : x.move.localeCompare(y.move));
-  tb.innerHTML = rows.length ? rows.map(r=>`<tr><td>${MOVES[r.move].ko}</td><td><span class="pill">${VAR_KO[r.variation]||r.variation}</span></td>
-    <td class="num"><b>${fmt(r.best)}</b></td><td class="num">${fmt(r.last)}</td><td class="num">${r.n}</td></tr>`).join("")
-    : `<tr><td colspan="5" style="color:var(--dim)">기록 없음</td></tr>`;
-}
-function renderVarOptions(){
-  const move=document.getElementById("histMove").value;
-  const sel=document.getElementById("histVar"); const cur=sel.value;
-  const vars=[...new Set(store.attempts.filter(a=>a.move===move).map(a=>a.variation))];
-  sel.innerHTML=`<option value="all">모든 변형</option>`+vars.map(v=>`<option value="${v}">${VAR_KO[v]||v}</option>`).join("");
-  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
-}
-function renderChart(){
-  const cv=document.getElementById("chart");
-  const move=document.getElementById("histMove").value;
-  const vf=document.getElementById("histVar").value;
-  const days=+document.getElementById("histRange").value;
-  const cutoff=Date.now()-days*86400000;
-  const data=store.attempts.filter(a=>a.move===move && (vf==="all"||a.variation===vf) && new Date(a.ts).getTime()>=cutoff);
-  const byDay={};
-  for(const a of data){
-    const k=dayKey(a.ts); byDay[k]=byDay[k]||[];
-    byDay[k].push(a);
-  }
-  const keys=Object.keys(byDay).sort();
-  const pts=keys.map(k=>{
-    const arr=byDay[k].slice().sort((x,y)=>y.durationMs-x.durationMs);
-    const top3=arr.slice(0,3);
-    return { day:k, best:arr[0].durationMs/1000,
-      top3:top3.reduce((s,x)=>s+x.durationMs,0)/top3.length/1000,
-      score:arr.reduce((s,x)=>s+x.avgScore,0)/arr.length };
-  });
-  const dpr=window.devicePixelRatio||1;
-  const W=cv.clientWidth, H=260;
-  cv.width=W*dpr; cv.height=H*dpr; cv.style.height=H+"px";
-  const c=cv.getContext("2d"); c.setTransform(dpr,0,0,dpr,0,0);
-  c.clearRect(0,0,W,H);
-  const pad={l:42,r:14,t:16,b:30};
-  const maxY=Math.max(5, ...pts.map(p=>p.best))*1.15;
-  c.strokeStyle="#262c38"; c.fillStyle="#8b93a7"; c.font="11px sans-serif";
-  for(let i=0;i<=4;i++){
-    const y=pad.t+(H-pad.t-pad.b)*i/4, val=maxY*(1-i/4);
-    c.beginPath(); c.moveTo(pad.l,y); c.lineTo(W-pad.r,y); c.stroke();
-    c.fillText(val.toFixed(0)+"s", 6, y+4);
-  }
-  if(!pts.length){ c.fillStyle="#8b93a7"; c.fillText("이 동작의 기록이 아직 없어요", W/2-80, H/2); return; }
-  const n=pts.length;
-  const X=i=> pad.l + (W-pad.l-pad.r)*(n===1?0.5:i/(n-1));
-  const Y=v=> pad.t + (H-pad.t-pad.b)*(1-v/maxY);
-  const bw=Math.max(6, Math.min(26,(W-pad.l-pad.r)/Math.max(n,1)*0.5));
-  pts.forEach((p,i)=>{ c.fillStyle="#1f3b2b"; c.fillRect(X(i)-bw/2, Y(p.best), bw, H-pad.b-Y(p.best)); });
-  c.strokeStyle="#60a5fa"; c.lineWidth=2; c.beginPath();
-  pts.forEach((p,i)=>{ i?c.lineTo(X(i),Y(p.top3)):c.moveTo(X(i),Y(p.top3)); }); c.stroke();
-  pts.forEach((p,i)=>{
-    c.fillStyle = p.score>=80?"#4ade80":p.score>=68?"#fbbf24":"#f87171";
-    c.beginPath(); c.arc(X(i),Y(p.best),4,0,7); c.fill();
-  });
-  c.fillStyle="#8b93a7"; c.font="10px sans-serif";
-  const step=Math.ceil(n/8);
-  pts.forEach((p,i)=>{ if(i%step===0||i===n-1) c.fillText(p.day.slice(5), X(i)-14, H-10); });
-}
-
-/* ============================================================
-   11. UI 바인딩
-   ============================================================ */
-const $=id=>document.getElementById(id);
-$("btnStart").onclick=startCamera;
-$("btnStop").onclick=stopAll;
-$("fileInput").onchange=e=>{ if(e.target.files[0]) loadVideoFile(e.target.files[0]); };
-$("btnMirror").onclick=()=>{ S.mirror=!S.mirror; applyMirror(); save(); };
-$("btnFacing").onclick=async()=>{
-  S.facing = S.facing==="environment" ? "user" : "environment"; save(); updateFacingLabel();
-  $("camSelect").value="";
-  if(running && stream){ stopAll(); await startCamera(); }
-};
-function updateFacingLabel(){ $("btnFacing").textContent = S.facing==="environment" ? "후면 카메라" : "전면 카메라"; }
-$("btnFull").onclick=()=>{
-  const el=$("stage");
-  if(document.fullscreenElement) document.exitFullscreen();
-  else if(el.requestFullscreen) el.requestFullscreen();
-  else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-};
-$("btnDiscard").onclick=()=>{ resetAttempt(); toast("현재 시도 취소"); };
-function applyMirror(){ video.classList.toggle("mirror",S.mirror); overlay.classList.toggle("mirror",S.mirror); }
-
-document.body.addEventListener("click",e=>{
-  const id=e.target.getAttribute && e.target.getAttribute("data-del");
-  if(id){ store.attempts=store.attempts.filter(a=>a.id!==id); save(); renderSession(); renderAll(); renderPB(); renderChart(); renderKPI(); }
-});
-
-// 탭
-const views={tabMeasure:"viewMeasure",tabHistory:"viewHistory",tabSettings:"viewSettings"};
-Object.keys(views).forEach(t=>$(t).onclick=()=>{
-  Object.keys(views).forEach(k=>{ $(k).classList.toggle("on",k===t); $(views[k]).classList.toggle("hidden",k!==t); });
-  if(t==="tabHistory"){ renderVarOptions(); renderChart(); renderAll(); renderPB(); }
-});
-["histMove","histVar","histRange"].forEach(id=>$(id).onchange=()=>{ if(id==="histMove") renderVarOptions(); renderChart(); });
-
-// 설정
-function bindRange(id,key,fmtf){
-  const el=$(id), out=$("v"+id.slice(3));
-  el.value=S[key]; out.textContent=fmtf(S[key]);
-  el.oninput=()=>{ S[key]=+el.value; out.textContent=fmtf(S[key]); save(); };
-}
-function bindCheck(id,key){ const el=$(id); el.checked=!!S[key]; el.onchange=()=>{S[key]=el.checked; save(); if(key==="mirror") applyMirror();}; }
-bindRange("setThreshold","threshold",v=>v+"점");
-bindRange("setGrace","graceMs",v=>(v/1000).toFixed(1)+"초");
-bindRange("setStable","stableMs",v=>(v/1000).toFixed(1)+"초");
-bindRange("setMinValid","minValidMs",v=>(v/1000).toFixed(1)+"초");
-bindRange("setTilt","tiltCalib",v=>(+v).toFixed(1)+"°");
-bindCheck("setSound","sound"); bindCheck("setTick","tick"); bindCheck("setSkeleton","skeleton");
-bindCheck("setVoice","voice"); bindCheck("setWake","wake");
-$("setModel").value=S.model; $("setModel").onchange=()=>{S.model=$("setModel").value; save();};
-$("btnReloadModel").onclick=async()=>{ const was=running; stopAll(); await initModel(); if(was) startCamera(); };
-$("btnResetSettings").onclick=()=>{ Object.assign(S,DEFAULTS); save(); location.reload(); };
-
-// 데이터
-$("btnExportJson").onclick=()=>download("holdtracker-"+dayKey(new Date().toISOString())+".json", JSON.stringify(store,null,2), "application/json");
-$("btnExportCsv").onclick=()=>{
-  const head="ts,move,variation,duration_s,clean_s,avg_score,min_score,worst\n";
-  const body=store.attempts.map(a=>[a.ts,a.move,a.variation,(a.durationMs/1000).toFixed(2),(a.cleanMs/1000).toFixed(2),a.avgScore,a.minScore,a.worst||""].join(",")).join("\n");
-  download("holdtracker.csv", head+body, "text/csv");
-};
-$("importInput").onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const r=new FileReader();
-  r.onload=()=>{ try{
-    const d=JSON.parse(r.result);
-    const ids=new Set(store.attempts.map(a=>a.id));
-    (d.attempts||[]).forEach(a=>{ if(!ids.has(a.id)) store.attempts.push(a); });
-    store.attempts.sort((a,b)=>new Date(a.ts)-new Date(b.ts));
-    save(); renderSession(); renderAll(); renderPB(); renderChart(); renderKPI(); toast("가져오기 완료");
-  }catch(err){ toast("가져오기 실패"); } };
-  r.readAsText(f);
-};
-$("btnDemo").onclick=()=>{
-  if(!confirm("6주간의 가짜 진척도 데이터를 추가할까요? (기능 미리보기용)")) return;
-  const now=Date.now(), rnd=(a,b)=>a+Math.random()*(b-a);
-  for(let d=41; d>=0; d-=2){
-    const day=now-d*86400000, prog=(42-d)/42;
-    for(let s=0;s<3;s++){
-      const dur=Math.max(3,(9+prog*14)*rnd(0.72,1.06)-s*1.2);
-      store.attempts.push({id:"demo"+d+"a"+s, ts:new Date(day+s*240000).toISOString(), move:"FRONT_LEVER",
-        variation: prog>0.6?"adv_tuck":"tuck", durationMs:Math.round(dur*1000), cleanMs:Math.round(dur*920),
-        avgScore:+(72+prog*16+rnd(-4,4)).toFixed(1), minScore:70, worst:"수평"});
-    }
-    for(let s=0;s<2;s++){
-      const dur=Math.max(3,(6+prog*9)*rnd(0.7,1.05)-s);
-      store.attempts.push({id:"demo"+d+"b"+s, ts:new Date(day+1800000+s*240000).toISOString(), move:"PLANCHE",
-        variation:"tuck", durationMs:Math.round(dur*1000), cleanMs:Math.round(dur*900),
-        avgScore:+(70+prog*18+rnd(-5,4)).toFixed(1), minScore:66, worst:"어깨 전방"});
-    }
-  }
-  store.attempts.sort((a,b)=>new Date(a.ts)-new Date(b.ts)); save();
-  renderSession(); renderAll(); renderPB(); renderVarOptions(); renderChart(); renderKPI(); toast("데모 데이터 추가됨");
-};
-$("btnWipe").onclick=()=>{ if(confirm("모든 기록을 삭제할까요?")){ store.attempts=[]; save(); renderSession(); renderAll(); renderPB(); renderChart(); renderKPI(); } };
-function download(name, text, type){
-  const b=new Blob([text],{type}); const u=URL.createObjectURL(b);
-  const a=document.createElement("a"); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
-}
-
-$("logicDoc").innerHTML = `
-<b>공통</b> — BlazePose(33 랜드마크)의 3D world 좌표로 각도를 계산합니다. 수평/수직은 화면 축 기준이라 카메라가 기울면 <b>수평 보정</b>이 필요합니다.<br><br>
-<b>플란체</b> — 게이트: 손목이 어깨보다 아래 + 발이 손보다 충분히 높음(플랭크/푸시업 배제) + 몸이 대체로 수평.<br>
-점수: 수평(34%) · 팔 폄(24%) · 어깨 전방 이동(20%) · 몸 일직선/엉덩이 높이(22%)<br><br>
-<b>프론트 레버 / 백 레버</b> — 게이트: 손목이 어깨 위(매달림) + 몸 수평 + 배 방향(앞면 법선 = 몸통축 × 어깨선)으로 앞/뒤 구분.<br>
-점수: 수평(38%) · 팔 폄(24%) · 허리 처짐(22%) · 어깨각(16%)<br><br>
-<b>L-sit</b> — 몸통 수직 + 다리 수평 + 무릎/팔 폄.<br>
-<b>핸드스탠드</b> — 엉덩이가 어깨 위 + 전신 수직 + 팔 폄 + 몸 일직선.<br><br>
-<b>변형 판정</b> — 고관절/무릎 각도와 발목 벌림 비율로 턱 / 어드밴스드 턱 / 하프 / 스트래들 / 풀을 구분합니다.<br><br>
-<b>타이머</b> — IDLE → ARMING(안정화) → HOLDING → BREAKING(유예) 상태머신. 기준 점수 ±8점 히스테리시스로 경계에서 타이머가 튀지 않게 합니다.`;
-
-// 개발/검증용 훅 (합성 포즈로 판정 로직 테스트)
-window.__ht = { computeMetrics, classify, evaluate, classifyVariation, MOVES, VAR_KO, S, store, save,
-  renderAll, renderPB, renderChart, renderKPI, renderSession, renderVarOptions,
-  tickTimer, T, currentElapsed, resetAttempt, updateHUD };
-
-// 초기 렌더
-applyMirror(); updateFacingLabel();
-renderSession(); renderAll(); renderPB(); renderVarOptions(); renderChart(); renderKPI();
-listCams();
-initModel();
-// PWA: 홈 화면 추가 + 오프라인 캐시
-if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
-}
-window.addEventListener("resize",()=>{ if(!$("viewHistory").classList.contains("hidden")) renderChart(); });
+window.__ht={computeMetrics,classify,evaluate,classifyVariation,MOVES,VAR_KO,S,store,save,tickTimer,T,currentElapsed,resetAttempt,renderChart};window.__rep={REP_MOVES,stepRep,commitRep,R,resetRepSession,clearRepTransient,TOP_TH,BOT_TH,TOP_SETTLE_MS,MIN_REP_MS,MAX_REP_MS,persistRepSession};window.__framing={assessFraming,landmarks:LM};window.__captureTest={configureTrack,updateZoomUI,trackingUnavailable};window.__formtrack={hold:window.__ht,reps:window.__rep,framing:window.__framing,setMeasureMode};
+applyMirror();updateFacingLabel();updateWorkoutUI();R.move=$("repMove").value;setMeasureMode(S.measureMode);renderAllData();listCams();initModel();if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 </script>
 </body>
 </html>

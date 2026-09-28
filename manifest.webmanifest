@@ -1,7 +1,7 @@
 {
-  "name": "HoldTracker — 칼리스테닉스 정적 홀드 측정",
+  "name": "HoldTracker · 홀드와 반복 훈련",
   "short_name": "HoldTracker",
-  "description": "카메라로 플란체·프론트 레버 등 정적 홀드를 자동 인식해 자세 품질을 평가하고 유지 시간을 기록합니다.",
+  "description": "한 화면에서 홀드 시간과 반복 횟수를 기록하는 온디바이스 훈련 도구. 자세 측정값과 개선점을 확인하세요.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
