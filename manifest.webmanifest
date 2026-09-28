@@ -1,7 +1,7 @@
 {
   "name": "HoldTracker · 홀드와 반복 훈련",
   "short_name": "HoldTracker",
-  "description": "한 화면에서 홀드 시간과 반복 횟수를 기록하는 온디바이스 훈련 도구. 자세 측정값과 개선점을 확인하세요.",
+  "description": "운동을 고르고 카메라를 준비하면 시작. 반복 횟수, 홀드 시간, Cindy 챌린지를 단계별로 안내하는 온디바이스 훈련 도구.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
