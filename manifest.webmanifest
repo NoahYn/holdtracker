@@ -1,7 +1,7 @@
 {
   "name": "HoldTracker · 홀드와 반복 훈련",
   "short_name": "HoldTracker",
-  "description": "운동을 고르고 카메라를 준비하면 시작. 반복 횟수, 홀드 시간, Cindy 챌린지를 단계별로 안내하는 온디바이스 훈련 도구.",
+  "description": "화면을 마주보는 정면 횟수·시간 기록과 측면 자세 분석. 운동 선택부터 카메라 준비, 운동, 결과까지 안내하는 온디바이스 훈련 도구.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -10,8 +10,23 @@
   "theme_color": "#0c0e13",
   "lang": "ko",
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "./icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
