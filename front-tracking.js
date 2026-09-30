@@ -73,6 +73,10 @@ function finitePoint(p) {
   return !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
 }
 
+function finiteWorldPoint(p) {
+  return finitePoint(p) && Number.isFinite(p.z);
+}
+
 function confidence(p) {
   if (!finitePoint(p)) return 0;
   const v = Number.isFinite(p.visibility) ? p.visibility : 1;
@@ -91,6 +95,13 @@ function usable(p, endpoint = false) {
 function point(lm, i, endpoint = false) {
   const p = lm?.[i];
   return usable(p, endpoint) ? { x: p.x, y: p.y, z: Number.isFinite(p.z) ? p.z : 0 } : null;
+}
+
+function worldPoint(world, i) {
+  const p = world?.[i];
+  return finiteWorldPoint(p) && confidence(p) >= CONFIDENCE_MIN
+    ? { x: p.x, y: p.y, z: p.z }
+    : null;
 }
 
 function midpoint(a, b) {
@@ -118,6 +129,46 @@ function angle(a, b, c) {
   return Math.acos(cosine) * 180 / Math.PI;
 }
 
+function vector3(a, b) {
+  return a && b ? { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z } : null;
+}
+
+function magnitude3(v) {
+  return v ? Math.hypot(v.x, v.y, v.z) : NaN;
+}
+
+function averageVector3(vectors) {
+  const finite = vectors.filter(v => v && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z));
+  if (!finite.length) return null;
+  return {
+    x: finite.reduce((sum, v) => sum + v.x, 0) / finite.length,
+    y: finite.reduce((sum, v) => sum + v.y, 0) / finite.length,
+    z: finite.reduce((sum, v) => sum + v.z, 0) / finite.length,
+  };
+}
+
+function elevationFromHorizontal3(v) {
+  if (!v) return NaN;
+  const horizontal = Math.hypot(v.x, v.z);
+  if (horizontal < EPS && Math.abs(v.y) < EPS) return NaN;
+  return Math.atan2(Math.abs(v.y), horizontal) * 180 / Math.PI;
+}
+
+function angle3(a, b, c) {
+  const u = vector3(b, a), v = vector3(b, c);
+  const den = magnitude3(u) * magnitude3(v);
+  if (!Number.isFinite(den) || den < EPS) return NaN;
+  const cosine = Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y + u.z * v.z) / den));
+  return Math.acos(cosine) * 180 / Math.PI;
+}
+
+function medianFinite(values) {
+  const finite = values.filter(v => Number.isFinite(v) && v > EPS).sort((a, b) => a - b);
+  if (!finite.length) return NaN;
+  const mid = Math.floor(finite.length / 2);
+  return finite.length % 2 ? finite[mid] : (finite[mid - 1] + finite[mid]) / 2;
+}
+
 function meanFinite(values) {
   const finite = values.filter(Number.isFinite);
   return finite.length ? finite.reduce((a, b) => a + b, 0) / finite.length : NaN;
@@ -136,32 +187,98 @@ function groupReady(group, minimum = 1) {
 
 function worldCorroboration(world) {
   if (!Array.isArray(world) || world.length < 33) return null;
-  const wp = i => finitePoint(world[i]) ? world[i] : null;
-  const d3 = (a, b) => a && b ? Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0)) : NaN;
-  const shoulderWidth = d3(wp(P.L_SHOULDER), wp(P.R_SHOULDER));
-  const hipWidth = d3(wp(P.L_HIP), wp(P.R_HIP));
-  const torsoLeft = d3(wp(P.L_SHOULDER), wp(P.L_HIP));
-  const torsoRight = d3(wp(P.R_SHOULDER), wp(P.R_HIP));
-  const lengths = [shoulderWidth, hipWidth, torsoLeft, torsoRight].filter(v => Number.isFinite(v) && v > EPS);
-  if (lengths.length < 2) return { available: false, scaleConsistent: false };
+  const wp = i => worldPoint(world, i);
+  const d3 = (a, b) => magnitude3(vector3(a, b));
+  const lengths = [
+    d3(wp(P.L_SHOULDER), wp(P.R_SHOULDER)),
+    d3(wp(P.L_HIP), wp(P.R_HIP)),
+    d3(wp(P.L_SHOULDER), wp(P.L_HIP)),
+    d3(wp(P.R_SHOULDER), wp(P.R_HIP)),
+    d3(wp(P.L_SHOULDER), wp(P.L_WRIST)),
+    d3(wp(P.R_SHOULDER), wp(P.R_WRIST)),
+    d3(wp(P.L_HIP), wp(P.L_KNEE)),
+    d3(wp(P.R_HIP), wp(P.R_KNEE)),
+    d3(wp(P.L_KNEE), wp(P.L_ANKLE)),
+    d3(wp(P.R_KNEE), wp(P.R_ANKLE)),
+  ].filter(v => Number.isFinite(v) && v > EPS);
+  if (lengths.length < 3) return { available: false, scaleConsistent: false };
   const min = Math.min(...lengths), max = Math.max(...lengths);
-  return { available: true, scaleConsistent: max / min < 4.5 };
+  return { available: true, scaleConsistent: max / min < 5.5 };
 }
 
-function warningsFor(validFor) {
+function holdWorldMeasurements(world, visible) {
+  const base = worldCorroboration(world);
+  if (!base) return null;
+  const wp = i => visible[i] ? worldPoint(world, i) : null;
+  const sideIds = [
+    { shoulder: P.L_SHOULDER, elbow: P.L_ELBOW, wrist: P.L_WRIST, hip: P.L_HIP, knee: P.L_KNEE, ankle: P.L_ANKLE },
+    { shoulder: P.R_SHOULDER, elbow: P.R_ELBOW, wrist: P.R_WRIST, hip: P.R_HIP, knee: P.R_KNEE, ankle: P.R_ANKLE },
+  ];
+  const complete = sideIds.filter(ids => [ids.shoulder, ids.wrist, ids.hip, ids.knee, ids.ankle].every(i => !!wp(i)));
+  const d3 = (a, b) => magnitude3(vector3(a, b));
+  const torsoVectors = complete.map(ids => vector3(wp(ids.shoulder), wp(ids.hip)));
+  const armVectors = complete.map(ids => vector3(wp(ids.shoulder), wp(ids.wrist)));
+  const torsoVector = averageVector3(torsoVectors);
+  const armVector = averageVector3(armVectors);
+  const torsoLength = meanFinite(complete.map(ids => d3(wp(ids.shoulder), wp(ids.hip))));
+  const armLength = meanFinite(complete.map(ids => d3(wp(ids.shoulder), wp(ids.wrist))));
+  const referenceScale = medianFinite([
+    d3(wp(P.L_SHOULDER), wp(P.R_SHOULDER)),
+    d3(wp(P.L_HIP), wp(P.R_HIP)),
+    armLength,
+    ...complete.map(ids => d3(wp(ids.hip), wp(ids.knee))),
+    ...complete.map(ids => d3(wp(ids.knee), wp(ids.ankle))),
+  ]);
+  const elbowAngle3d = meanFinite(sideIds.map(ids => angle3(wp(ids.shoulder), wp(ids.elbow), wp(ids.wrist))));
+  const ankleWristClearance = meanFinite(complete.map(ids => {
+    const wrist = wp(ids.wrist), ankle = wp(ids.ankle);
+    return Number.isFinite(referenceScale) ? (wrist.y - ankle.y) / referenceScale : NaN;
+  }));
+  const torsoScaleRatio = Number.isFinite(referenceScale) ? torsoLength / referenceScale : NaN;
+  const armVertical = Number.isFinite(referenceScale) && armVector ? armVector.y / referenceScale : NaN;
+  const reliable = base.available && base.scaleConsistent && complete.length >= 1 &&
+    Number.isFinite(referenceScale) && Number.isFinite(torsoLength) && torsoLength > EPS &&
+    Number.isFinite(armLength) && armLength > EPS && !!torsoVector && !!armVector;
+
+  return {
+    ...base,
+    reliable,
+    completeSides: complete.length,
+    referenceScale,
+    torsoVector,
+    armVector,
+    torsoLength,
+    armLength,
+    torsoScaleRatio,
+    torsoElevationDeg: elevationFromHorizontal3(torsoVector),
+    armElevationDeg: elevationFromHorizontal3(armVector),
+    armVertical,
+    ankleWristClearance,
+    elbowAngle3d,
+  };
+}
+
+function warningsFor(validFor, holdReadiness = {}) {
+  const holdWarning = valid => valid ? '' : !holdReadiness.normalized
+    ? '전면에서 어깨, 엉덩이, 손목, 무릎, 발목이 화면 가장자리에 잘리지 않게 보이게 하세요. 한쪽 가림은 허용돼요.'
+    : '3D 추정 불안정: 몸 전체가 보이도록 카메라를 정면보다 약간 대각으로 조정하세요.';
   return {
     AIR_SQUAT: validFor.AIR_SQUAT ? '' : '전면에서 몸통, 엉덩이, 무릎, 발목이 화면 안에 보이게 하세요.',
     PUSH_UP: validFor.PUSH_UP ? '' : '전면에서 어깨, 팔꿈치, 손목, 엉덩이가 보이게 하세요. 발은 보이지 않아도 됩니다.',
     PULL_UP: validFor.PULL_UP ? '' : '전면에서 코, 어깨, 팔꿈치, 손목이 보이게 하세요. 발은 보이지 않아도 됩니다.',
     L_SIT: validFor.L_SIT ? '' : '전면에서 어깨, 엉덩이, 손목, 발목이 화면 안에 보이게 하세요.',
     HANDSTAND: validFor.HANDSTAND ? '' : '전면에서 양쪽 손목과 어깨, 엉덩이, 발목이 화면 안에 보이게 하세요.',
+    FRONT_LEVER: holdWarning(validFor.FRONT_LEVER),
+    BACK_LEVER: holdWarning(validFor.BACK_LEVER),
+    PLANCHE: holdWarning(validFor.PLANCHE),
   };
 }
 
 /**
  * Derive front-view measurements from 33 normalized pose landmarks.
- * Optional world landmarks are used only as a weak consistency annotation and
- * never replace missing normalized-image landmarks.
+ * Optional world landmarks remain an annotation for rep tracking. The front
+ * lever/back lever/planche timer gates additionally require reliable 3D vectors;
+ * world data never replaces missing or frame-clipped normalized landmarks.
  *
  * @param {Array<object>} lm MediaPipe-style normalized landmarks (length >= 33).
  * @param {Array<object>|null} world Optional world landmarks.
@@ -170,7 +287,11 @@ function warningsFor(validFor) {
  */
 export function frontFrame(lm, world = null) {
   const malformed = !Array.isArray(lm) || lm.length < 33;
-  const emptyValid = { AIR_SQUAT: false, PUSH_UP: false, PULL_UP: false, L_SIT: false, HANDSTAND: false };
+  const emptyValid = {
+    AIR_SQUAT: false, PUSH_UP: false, PULL_UP: false,
+    L_SIT: false, HANDSTAND: false,
+    FRONT_LEVER: false, BACK_LEVER: false, PLANCHE: false,
+  };
   if (malformed) {
     const warning = '사람을 찾지 못했어요. 카메라 앞에서 시작 자세를 잡아 주세요.';
     return {
@@ -188,6 +309,23 @@ export function frontFrame(lm, world = null) {
   const knees = pair(lm, PAIRS.knees);
   const ankles = pair(lm, PAIRS.ankles, true);
   const nose = point(lm, P.NOSE, true);
+
+  // Lever/planche auto timing is stricter about image endpoints than rep metrics:
+  // every required joint group must be confidently inside the frame, while one
+  // fully visible side is enough to tolerate ordinary self-occlusion.
+  const holdVisible = {};
+  for (const ids of [PAIRS.shoulders, PAIRS.elbows, PAIRS.wrists, PAIRS.hips, PAIRS.knees, PAIRS.ankles]) {
+    for (const id of ids) holdVisible[id] = point(lm, id, true);
+  }
+  const holdShoulders = { left: holdVisible[P.L_SHOULDER], right: holdVisible[P.R_SHOULDER] };
+  const holdWrists = { left: holdVisible[P.L_WRIST], right: holdVisible[P.R_WRIST] };
+  const holdHips = { left: holdVisible[P.L_HIP], right: holdVisible[P.R_HIP] };
+  const holdKnees = { left: holdVisible[P.L_KNEE], right: holdVisible[P.R_KNEE] };
+  const holdAnkles = { left: holdVisible[P.L_ANKLE], right: holdVisible[P.R_ANKLE] };
+  for (const group of [holdShoulders, holdWrists, holdHips, holdKnees, holdAnkles]) {
+    group.mid = midpoint(group.left, group.right);
+    group.count = Number(!!group.left) + Number(!!group.right);
+  }
 
   const shoulderSpan = shoulders.left && shoulders.right ? dist(shoulders.left, shoulders.right) : NaN;
   const torsoLength = shoulders.mid && hips.mid ? dist(shoulders.mid, hips.mid) : NaN;
@@ -207,6 +345,14 @@ export function frontFrame(lm, world = null) {
     dist(ankles.left, hips.left),
     dist(ankles.right, hips.right),
   ]) / scale;
+  const holdWristShoulderGap = meanFinite([
+    holdWrists.left && holdShoulders.left ? holdWrists.left.y - holdShoulders.left.y : NaN,
+    holdWrists.right && holdShoulders.right ? holdWrists.right.y - holdShoulders.right.y : NaN,
+  ]) / scale;
+  const holdEndpointsReady = [holdShoulders, holdWrists, holdHips, holdKnees, holdAnkles]
+    .every(group => group.count >= 1 && !!group.mid);
+  const holdWorld = holdWorldMeasurements(world, holdVisible);
+  const hold3dValid = holdEndpointsReady && !!holdWorld?.reliable;
 
   // Each rep metric is larger at its extended/start posture and decreases
   // during the meaningful excursion. Angles soften perspective-only noise.
@@ -235,8 +381,11 @@ export function frontFrame(lm, world = null) {
     PULL_UP: pullValid && Number.isFinite(pullMetric),
     L_SIT: lSitValid,
     HANDSTAND: handstandValid,
+    FRONT_LEVER: hold3dValid,
+    BACK_LEVER: hold3dValid,
+    PLANCHE: hold3dValid,
   };
-  const warnings = warningsFor(validFor);
+  const warnings = warningsFor(validFor, { normalized: holdEndpointsReady, world: !!holdWorld?.reliable });
 
   return {
     view: 'front',
@@ -251,6 +400,7 @@ export function frontFrame(lm, world = null) {
       shoulderSpan, torsoLength, torsoDx, torsoDy,
       hipKneeGap, kneeAnkleGap, shoulderWristGap, shoulderHipVerticalGap,
       noseWristGap, ankleHipDistance, elbowAngle, kneeAngle,
+      holdWristShoulderGap,
       squatMetric, pushMetric, pullMetric,
       points: {
         nose,
@@ -263,7 +413,7 @@ export function frontFrame(lm, world = null) {
       },
     },
     posture,
-    world: worldCorroboration(world),
+    world: holdWorld || worldCorroboration(world),
   };
 }
 
@@ -489,22 +639,72 @@ export function stepFrontRep(state, frame, tMs) {
   return result(state, false, cueFor(state.move, 'RETURN'));
 }
 
+function estimatedHoldFeedback(move, frame) {
+  const w = frame?.world;
+  const feedback = [];
+  const addDegrees = (label, value, detail) => {
+    if (Number.isFinite(value)) feedback.push({
+      label, value: `${Math.round(value)}°`, detail, reliability: 'estimate',
+    });
+  };
+  addDegrees(
+    '몸통 3D 각도',
+    w?.torsoElevationDeg,
+    'world landmark의 어깨→엉덩이 벡터에서 |y|와 hypot(x,z)로 계산한 수평면 대비 추정값이에요.',
+  );
+  addDegrees(
+    '팔 3D 각도',
+    w?.armElevationDeg,
+    'world landmark의 어깨→손목 벡터가 수평면에서 얼마나 들렸는지 계산한 추정값이에요.',
+  );
+  addDegrees(
+    '팔꿈치 각도',
+    w?.elbowAngle3d,
+    'world landmark에서 보이는 쪽을 평균한 3D 추정값이에요. 팔 굽힘은 참고만 하며 자동 타이머를 막지 않아요.',
+  );
+  const gap = frame?.measurements?.holdWristShoulderGap;
+  if (Number.isFinite(gap)) feedback.push({
+    label: '손목 위치',
+    value: gap < 0 ? '어깨보다 위' : '어깨보다 아래',
+    detail: '정규화 영상에서 보이는 같은 쪽 어깨와 손목의 세로 위치를 비교한 추정이에요.',
+    reliability: 'estimate',
+  });
+  if (move === 'PLANCHE' && Number.isFinite(w?.ankleWristClearance)) feedback.push({
+    label: '발목 높이',
+    value: w.ankleWristClearance > 0 ? '손목보다 위' : '손목과 비슷하거나 아래',
+    detail: 'world landmark의 y축에서 발목이 손 지지면보다 떠 있는지 보는 3D 추정이에요.',
+    reliability: 'estimate',
+  });
+  return feedback;
+}
+
 /**
  * Approximate static front-camera hold gate.
- * L_SIT checks an upright torso, visible floor-support arm arrangement, and feet
- * elevated near hip height. HANDSTAND checks an inverted ankle-hip-shoulder
- * stack with both visible wrists below the shoulders. These are only timer gates:
- * they cannot confirm actual support, balance, contact, or score hold quality.
+ * L_SIT and HANDSTAND retain their normalized-image checks. FRONT_LEVER,
+ * BACK_LEVER, and PLANCHE require visible normalized endpoints plus reliable
+ * world-landmark vectors. The lever variants use the chosen exercise label and
+ * intentionally do not try to infer front versus back from an ambiguous body
+ * normal. These are broad timer gates, not posture scores; caller dwell/grace
+ * logic decides when a hold actually starts or stops.
  *
- * @param {string} move `L_SIT` or `HANDSTAND`.
+ * @param {string} move Supported front hold move.
  * @param {object} frame Descriptor from frontFrame().
- * @returns {{supported:boolean,active:boolean,cue:string}}
+ * @returns {{supported:boolean,active:boolean,cue:string,feedback?:Array<object>,method?:string}}
  */
 export function frontHoldGate(move, frame) {
-  if (move !== 'L_SIT' && move !== 'HANDSTAND') {
+  const isLever = move === 'FRONT_LEVER' || move === 'BACK_LEVER';
+  const is3dHold = isLever || move === 'PLANCHE';
+  if (move !== 'L_SIT' && move !== 'HANDSTAND' && !is3dHold) {
     return { supported: false, active: false, cue: '이 동작은 수동 타이머를 사용하세요.' };
   }
   if (!frame?.validFor?.[move]) {
+    if (is3dHold) return {
+      supported: true,
+      active: false,
+      cue: frame?.warnings?.[move] || '3D 추정 불안정: 몸 전체가 보이도록 카메라를 정면보다 약간 대각으로 조정하세요.',
+      feedback: estimatedHoldFeedback(move, frame),
+      method: 'pose-3d-estimate',
+    };
     const cue = move === 'L_SIT'
       ? '어깨, 엉덩이, 손목, 발목이 화면 안에 보이게 하세요.'
       : '양쪽 손목과 어깨, 엉덩이, 발목이 화면 안에 보이게 하세요.';
@@ -526,17 +726,50 @@ export function frontHoldGate(move, frame) {
     };
   }
 
-  const ankleAboveHip = p.ankles.y < p.hips.y - 0.18 * frame.scale;
-  const hipAboveShoulder = p.hips.y < p.shoulders.y - 0.18 * frame.scale;
-  const wristsBelowShoulders = p.wrists.y > p.shoulders.y + 0.18 * frame.scale;
-  const stackDx = Math.max(
-    Math.abs(p.ankles.x - p.hips.x),
-    Math.abs(p.hips.x - p.shoulders.x),
-  ) / frame.scale;
-  const active = ankleAboveHip && hipAboveShoulder && wristsBelowShoulders && stackDx < 0.85;
+  if (move === 'HANDSTAND') {
+    const ankleAboveHip = p.ankles.y < p.hips.y - 0.18 * frame.scale;
+    const hipAboveShoulder = p.hips.y < p.shoulders.y - 0.18 * frame.scale;
+    const wristsBelowShoulders = p.wrists.y > p.shoulders.y + 0.18 * frame.scale;
+    const stackDx = Math.max(
+      Math.abs(p.ankles.x - p.hips.x),
+      Math.abs(p.hips.x - p.shoulders.x),
+    ) / frame.scale;
+    const active = ankleAboveHip && hipAboveShoulder && wristsBelowShoulders && stackDx < 0.85;
+    return {
+      supported: true,
+      active,
+      cue: active ? '핸드스탠드 자세가 대략 감지됐어요.' : '전신을 거꾸로 세우고 손목이 어깨 아래에 보이게 하세요.',
+    };
+  }
+
+  const w = frame.world;
+  const torsoHorizontal = Number.isFinite(w?.torsoElevationDeg) && w.torsoElevationDeg <= 42;
+  const torsoNotCollapsed = Number.isFinite(w?.torsoScaleRatio) && w.torsoScaleRatio >= 0.42;
+  const armsOriented = Number.isFinite(w?.armElevationDeg) && w.armElevationDeg >= 25;
+  const wristGap = m.holdWristShoulderGap;
+  let active;
+  let cue;
+  if (isLever) {
+    const wristsAboveShoulders = Number.isFinite(wristGap) && wristGap < -0.12;
+    const armsReachUp = Number.isFinite(w?.armVertical) && w.armVertical < -0.08;
+    active = torsoHorizontal && torsoNotCollapsed && armsOriented && wristsAboveShoulders && armsReachUp;
+    cue = active
+      ? '선택한 레버 자세가 3D로 대략 감지됐어요. 잠시 유지하면 시간이 시작돼요. 프런트/백 방향 자체는 자동 구분하지 않아요.'
+      : '손목이 어깨 위에 보이게 하고, 어깨-엉덩이 몸통 축을 수평에 가깝게 유지하세요. 프런트/백 방향 자체는 자동 구분하지 않아요.';
+  } else {
+    const wristsBelowShoulders = Number.isFinite(wristGap) && wristGap > 0.10;
+    const armsPressDown = Number.isFinite(w?.armVertical) && w.armVertical > 0.08;
+    const feetOffSupportPlane = Number.isFinite(w?.ankleWristClearance) && w.ankleWristClearance > 0.08;
+    active = torsoHorizontal && torsoNotCollapsed && armsOriented && wristsBelowShoulders && armsPressDown && feetOffSupportPlane;
+    cue = active
+      ? '플란체 자세가 3D로 대략 감지됐어요. 잠시 유지하면 시간이 시작돼요.'
+      : '손목이 어깨 아래에 보이게 하고 몸통을 수평에 가깝게 유지하며 발을 손 지지면보다 띄우세요.';
+  }
   return {
     supported: true,
     active,
-    cue: active ? '핸드스탠드 자세가 대략 감지됐어요.' : '전신을 거꾸로 세우고 손목이 어깨 아래에 보이게 하세요.',
+    cue,
+    feedback: estimatedHoldFeedback(move, frame),
+    method: 'pose-3d-estimate',
   };
 }

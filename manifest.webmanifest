@@ -1,7 +1,7 @@
 {
   "name": "HoldTracker · 홀드와 반복 훈련",
   "short_name": "HoldTracker",
-  "description": "화면을 마주보는 정면 횟수·시간 기록과 측면 자세 분석. 운동 선택부터 카메라 준비, 운동, 결과까지 안내하는 온디바이스 훈련 도구.",
+  "description": "운동을 자동 감지해 시간·횟수와 영상을 기기에 기록하고, 자세 피드백과 재생으로 확인하는 온디바이스 훈련 도구.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
