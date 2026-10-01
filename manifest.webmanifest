@@ -1,7 +1,7 @@
 {
-  "name": "HoldTracker · 홀드와 반복 훈련",
+  "name": "HoldTracker · 홀드·반복·유연성",
   "short_name": "HoldTracker",
-  "description": "운동을 자동 감지해 시간·횟수와 영상을 기기에 기록하고, 자세 피드백과 재생으로 확인하는 온디바이스 훈련 도구.",
+  "description": "홀드·반복 자동 기록과 로컬 운동 영상, pancake·split 유연성 벤치마크와 단계별 스트레칭 훈련.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
