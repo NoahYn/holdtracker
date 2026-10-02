@@ -2,7 +2,7 @@
    - 같은 오리진(앱 셸): network-first  → 배포하면 바로 최신 버전이 반영됨
    - CDN(포즈 모델/wasm): cache-first   → 한 번 받으면 오프라인/데이터 절약
 */
-const CACHE = "holdtracker-flexibility-v6";
+const CACHE = "holdtracker-flexibility-expert-v7";
 const SHELL = ["./", "./index.html", "./front-tracking.js", "./workout-video.js", "./flexibility.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {

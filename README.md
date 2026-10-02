@@ -139,3 +139,31 @@ Cindy는 20분 동안 풀업 5회 → 푸시업 10회 → 스쿼트 15회를 반
 2. [Mayo Clinic: basic stretches](https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/stretching/art-20546848) — 준비운동 5–10분, 부드럽고 느린 스트레칭을 안내합니다.
 3. [Chisholm et al., 2012: ankle lunge test reliability/validity](https://pmc.ncbi.nlm.nih.gov/articles/PMC3484905/) — 표준화된 체중부하 발목 측정의 신뢰도와 측정 오차를 다룹니다. 이 연구의 수치를 앱의 자가 측정 정확도로 보장하지 않습니다.
 4. [Stretch Therapy: pancake movement](https://stretchtherapy.net/pancake-moving-sequence/) — 골반의 전방 기울임과 고관절 힌지 지도 참고. 코칭 자료이며 임상 검증/무작위 시험과 구분합니다.
+
+
+## 출처별 유연성 측정·프로토콜 (v7)
+
+### 서로 다른 기록법을 섞지 않기
+
+- **전문가 출처 기반 수동 측정**: Lattice의 pancake 다리 벌림 각도(각도기로 직접 측정), 자세를 유지한 손 도달 거리, front split 앞·뒤 뒤꿈치 사이 거리. 출처와 앱의 추가 표준화 규칙을 함께 표시합니다.
+- **앱 자체 보조 기록**: 기존 가슴뼈/골반 아래 바닥 간격, 다리 벌림 폭·좌면 높이 등. 기존 데이터는 유지하되 전문가 인증·임상 검증된 측정법으로 재표시하지 않습니다.
+- **연구 기반 검사**: ankle knee-to-wall. 연구에서 검증한 검사와 앱의 자가 측정 정확도는 구분합니다.
+- 새 각도 기록은 °, 거리 기록은 cm입니다. 방법별 protocolId, 좌우, 지지 방식, 측정 시점 및 구도 조건이 같은 기록끼리만 비교합니다. 기존 바닥 간격과 새 뒤꿈치 거리/각도/도달 거리는 하나의 PB로 합치지 않습니다.
+- Lattice는 손 도달 거리의 정확한 0점 기준을 지정하지 않습니다. 앱은 **사용자가 고정 기준선을 정하고 이름을 기록하는 규칙**을 추가했습니다. 이 기준선·조건 일치 규칙은 앱의 반복 측정 설계이지 Lattice 공식 규격이 아닙니다.
+- Pancake 접촉 관찰(팔꿈치·팔뚝·머리·가슴·배)은 자기 보고입니다. 순위를 점수화하지 않으며 가슴만 닿았다고 정확한 pancake나 180° 달성을 인증하지 않습니다.
+- Front split은 앱에서 비교를 위해 골반 정면 조건을 선택했습니다. Lattice는 클라이밍 목적에서는 일부 골반 회전이 허용될 수 있다고 설명하므로, 앱의 엄격한 조건과 원문의 목적별 허용 범위가 다르다는 점을 표시합니다.
+- 기존 v1 기록과 새로운 방법별 v2 기록을 보존하고 JSON/CSV에 단위·protocolId·출처·관찰 항목을 포함합니다.
+
+### 출처와 앱 변형을 함께 보여주는 훈련
+
+기존 30초 × 2세트·20초 휴식은 **앱의 일반 저강도 템플릿**입니다. 새 Lattice 참고 루틴은 자세 인식/제어 → 준비 동작 → 가동범위 → 끝범위 근력의 구조를 참고하지만, 원문의 전체 세션을 복제하거나 공식 프로그램/개인 처방으로 제공하는 것은 아닙니다. 각 단계에 원문 권장량과 앱의 축소·저강도 변형을 구분해 보여줍니다. 무게 추가, 최대 견딜 강도, oversplit·반동을 자동 권장하지 않습니다.
+
+수동 반복 단계는 사용자가 실제 수행 후 완료를 확인합니다. 유지 동작 타이머 시간과 수동 반복/휴식은 구분하며, 타이머 시작만으로 완료 기록을 만들지 않습니다. 원문에 제시된 pancake 약 12주·front split 8–12주 재측정은 안내 문구일 뿐, 자동 일정/체크인으로 만들지 않습니다.
+
+원문:
+
+- [Lattice: pancake](https://latticetraining.com/blog/flexibility-for-climbers-improve-your-pancake) — straddle 각도, 접촉 관찰, 손 도달 거리와 네 단계 훈련 구조.
+- [Lattice: front split](https://latticetraining.com/blog/flexibility-for-climbers-improve-your-front-split) — 뒤꿈치 거리, 골반·무릎 정렬, 가동범위와 근력 훈련.
+- [Olivia Allnutt / Stretch Therapy: pancake 골반 움직임](https://stretchtherapy.net/the-pancake-reflections-on-mastering-the-essential-anterior-pelvic-tilt) — 척추만 굽혀 가슴을 낮추는 것과 고관절 굴곡을 구분하는 코칭 근거.
+
+HoldTracker는 해당 제공자와 제휴하지 않으며 출처 기반의 앱 변형이 임상적으로 검증된 프로토콜이라고 주장하지 않습니다.

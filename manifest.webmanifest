@@ -1,7 +1,7 @@
 {
   "name": "HoldTracker · 홀드·반복·유연성",
   "short_name": "HoldTracker",
-  "description": "홀드·반복 자동 기록과 로컬 운동 영상, pancake·split 유연성 벤치마크와 단계별 스트레칭 훈련.",
+  "description": "홀드·반복 자동 기록과 로컬 영상, 전문가 출처별 유연성 지표와 출처·변형을 명시한 저강도 훈련.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
