@@ -562,6 +562,11 @@ export function createWorkoutVideo({ onStatus = () => {} } = {}) {
     }
   };
 
+  // remove()/clear() resolve on success and reject on failure so callers can
+  // tell a confirmed delete apart from a failed one. Internal error state
+  // (lastError + 'error' status event) is still updated either way; the
+  // thrown error is additionally propagated to the caller instead of being
+  // swallowed.
   const remove = async recordId => {
     if (!validId(recordId)) return;
     memoryClips.delete(recordId);
@@ -576,6 +581,7 @@ export function createWorkoutVideo({ onStatus = () => {} } = {}) {
       } catch (error) {
         persistentUnavailable = true;
         setError('운동 영상을 삭제하지 못했습니다.', error, recordId);
+        throw error;
       }
     })();
     await track(operation);
@@ -594,6 +600,7 @@ export function createWorkoutVideo({ onStatus = () => {} } = {}) {
       } catch (error) {
         persistentUnavailable = true;
         setError('저장된 운동 영상을 모두 삭제하지 못했습니다.', error);
+        throw error;
       }
     })();
     await track(operation);

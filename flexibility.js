@@ -387,9 +387,95 @@ function buildTrainingSteps(routineId, workSeconds = 30, restSeconds = 20, sets 
   return routine.build(work, rest, count).map(step => ({ ...step, completedSeconds: 0, status: 'not_started' }));
 }
 
+export const FLEXIBILITY_TRAINING_DRAFT_KEY = 'holdtracker-flex-training-draft-v1';
+export const FLEXIBILITY_TRAINING_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Normalize a recoverable timer draft without turning it into a saved training record. */
+export function validateTrainingDraft(raw, now = Date.now()) {
+  const errors = {};
+  if (!isPlainObject(raw)) return { ok: false, errors: { draft: '훈련 임시 저장 형식이 올바르지 않습니다.' }, value: null };
+  if (raw.draftVersion != null && Number(raw.draftVersion) !== 1) errors.draftVersion = '지원하지 않는 훈련 임시 저장 버전입니다.';
+  const routineId = textValue(raw.routineId);
+  const routine = ROUTINES[routineId];
+  if (!routine) errors.routineId = '알 수 없는 훈련 루틴입니다.';
+  const updatedTime = Date.parse(raw.updatedAt);
+  const startedTime = Date.parse(raw.startedAt);
+  const nowTime = Number(now);
+  if (!Number.isFinite(updatedTime)) errors.updatedAt = '임시 저장 시각이 올바르지 않습니다.';
+  else if (!Number.isFinite(nowTime) || updatedTime > nowTime + 5 * 60 * 1000 || nowTime - updatedTime >= FLEXIBILITY_TRAINING_DRAFT_MAX_AGE_MS) errors.updatedAt = '임시 저장된 훈련이 만료되었습니다.';
+  if (!Number.isFinite(startedTime)) errors.startedAt = '훈련 시작 시각이 올바르지 않습니다.';
+  else if (!Number.isFinite(nowTime) || startedTime > nowTime + 5 * 60 * 1000 || nowTime - startedTime >= FLEXIBILITY_TRAINING_DRAFT_MAX_AGE_MS) errors.startedAt = '임시 저장된 훈련이 만료되었습니다.';
+  if (booleanValue(raw.warmupConfirmed) !== true) errors.warmupConfirmed = '워밍업 확인이 필요합니다.';
+  const config = isPlainObject(raw.config) ? raw.config : {};
+  const workSeconds = Number(config.workSeconds), restSeconds = Number(config.restSeconds), sets = Number(config.sets);
+  if (!Number.isFinite(workSeconds) || workSeconds < 10 || workSeconds > 90) errors.workSeconds = '동작 시간이 올바르지 않습니다.';
+  if (!Number.isFinite(restSeconds) || restSeconds < 5 || restSeconds > 60) errors.restSeconds = '휴식 시간이 올바르지 않습니다.';
+  if (!Number.isInteger(sets) || sets < 1 || sets > 4) errors.sets = '세트 수가 올바르지 않습니다.';
+  const expected = routine ? buildTrainingSteps(routineId, workSeconds, restSeconds, sets) : [];
+  const stepIndex = Number(raw.stepIndex);
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > expected.length) errors.stepIndex = '현재 단계 위치가 올바르지 않습니다.';
+  if (!Array.isArray(raw.steps) || raw.steps.length !== expected.length) errors.steps = '루틴 단계 구성이 일치하지 않습니다.';
+  const allowedStatuses = ['completed', 'skipped', 'partial', 'not_started'];
+  const steps = [];
+  if (Array.isArray(raw.steps) && raw.steps.length === expected.length) raw.steps.forEach((step, index) => {
+    const expectedStep = expected[index];
+    if (!isPlainObject(step) || step.id !== expectedStep.id || step.type !== expectedStep.type || Number(step.plannedSeconds) !== expectedStep.plannedSeconds) {
+      errors[`steps.${index}`] = '루틴 단계 구성이 일치하지 않습니다.';
+      return;
+    }
+    const completedSeconds = Number(step.completedSeconds);
+    const status = textValue(step.status);
+    if (!Number.isFinite(completedSeconds) || completedSeconds < 0 || completedSeconds > Math.max(3600, expectedStep.plannedSeconds)) errors[`steps.${index}.completedSeconds`] = '단계 진행 시간이 올바르지 않습니다.';
+    if (!allowedStatuses.includes(status)) errors[`steps.${index}.status`] = '단계 상태가 올바르지 않습니다.';
+    if (expectedStep.type === 'manual' && (completedSeconds !== 0 || status === 'partial')) errors[`steps.${index}.manual`] = '수동 단계 진행 상태가 올바르지 않습니다.';
+    if (status === 'not_started' && completedSeconds > 0) errors[`steps.${index}.status`] = '미시작 단계에 진행 시간이 있습니다.';
+    steps.push({ ...expectedStep, completedSeconds: Number.isFinite(completedSeconds) ? round(completedSeconds, 1) : 0, status });
+  });
+  const ok = Object.keys(errors).length === 0;
+  return {
+    ok, errors,
+    value: ok ? {
+      draftVersion: 1,
+      recordId: textValue(raw.recordId) || makeId('training'),
+      routineId,
+      config: { workSeconds, restSeconds, sets },
+      steps,
+      stepIndex,
+      warmupConfirmed: true,
+      startedAt: new Date(startedTime).toISOString(),
+      updatedAt: new Date(updatedTime).toISOString(),
+      notes: String(raw.notes ?? '').slice(0, NOTE_LIMIT),
+    } : null,
+  };
+}
+
+export function serializeTrainingDraft(raw, now = Date.now()) {
+  const nowTime = Number(now);
+  if (!Number.isFinite(nowTime)) return { ok: false, errors: { updatedAt: '임시 저장 시각이 올바르지 않습니다.' }, value: null };
+  return validateTrainingDraft({ ...raw, draftVersion: 1, updatedAt: new Date(nowTime).toISOString() }, nowTime);
+}
+
+export function trainingRecordFromDraft(raw, now = Date.now()) {
+  const checked = validateTrainingDraft(raw, now);
+  if (!checked.ok) return { ok: false, errors: checked.errors, value: null, record: null };
+  const draft = checked.value;
+  const exerciseSteps = draft.steps.filter(step => step.type !== 'rest');
+  const completion = exerciseSteps.length > 0 && exerciseSteps.every(step => step.status === 'completed');
+  return validateTraining({
+    id: draft.recordId,
+    ts: draft.startedAt,
+    routineId: draft.routineId,
+    warmupConfirmed: draft.warmupConfirmed,
+    config: draft.config,
+    completion,
+    steps: draft.steps,
+    notes: draft.notes,
+  });
+}
+
 const STYLE = `
 .flexibility-module-host{--flex-bg:var(--bg,#101319);--flex-card:var(--card,#1a2029);--flex-card2:var(--card2,#222a35);--flex-text:var(--text,#f3f5f7);--flex-muted:var(--muted,#aeb8c5);--flex-line:var(--line,#344050);--flex-accent:var(--accent,#66d9a7);--flex-danger:#ff8f8f;--flex-warn:#f2ca72;color:var(--flex-text);background:var(--flex-bg);font:inherit;color-scheme:dark}
-.flexibility-module-host *{box-sizing:border-box}.flexibility-module-host .flex-wrap{width:min(100%,390px);margin:0 auto;padding:14px;line-height:1.45}.flexibility-module-host .flex-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;position:sticky;top:0;z-index:2;background:var(--flex-bg);padding:4px 0 10px}.flexibility-module-host button,.flexibility-module-host input,.flexibility-module-host select,.flexibility-module-host textarea{font:inherit}.flexibility-module-host button{min-height:44px;border:1px solid var(--flex-line);border-radius:12px;background:var(--flex-card2);color:var(--flex-text);padding:9px 12px;cursor:pointer}.flexibility-module-host button:hover{border-color:var(--flex-accent)}.flexibility-module-host button:focus-visible,.flexibility-module-host input:focus-visible,.flexibility-module-host select:focus-visible,.flexibility-module-host textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--flex-accent) 55%,transparent);outline-offset:2px}.flexibility-module-host button[disabled]{opacity:.45;cursor:not-allowed}.flexibility-module-host .flex-tabs button[aria-selected=true],.flexibility-module-host .flex-primary{background:var(--flex-accent);border-color:var(--flex-accent);color:#07130e;font-weight:750}.flexibility-module-host .flex-card{background:var(--flex-card);border:1px solid var(--flex-line);border-radius:16px;padding:14px;margin:10px 0}.flexibility-module-host .flex-grid{display:grid;gap:10px}.flexibility-module-host .flex-two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.flexibility-module-host .flex-field{display:grid;gap:5px}.flexibility-module-host .flex-field>span,.flexibility-module-host legend{font-weight:700}.flexibility-module-host input[type=number],.flexibility-module-host select,.flexibility-module-host textarea{width:100%;min-height:44px;border:1px solid var(--flex-line);border-radius:10px;background:var(--flex-bg);color:var(--flex-text);padding:9px}.flexibility-module-host textarea{min-height:82px;resize:vertical}.flexibility-module-host fieldset{border:0;padding:0;margin:0}.flexibility-module-host .flex-check{display:flex;align-items:flex-start;gap:9px;padding:9px 0}.flexibility-module-host .flex-check input{width:22px;height:22px;flex:0 0 auto}.flexibility-module-host .flex-muted{color:var(--flex-muted);font-size:.92rem}.flexibility-module-host .flex-warning{color:var(--flex-warn)}.flexibility-module-host .flex-danger{color:var(--flex-danger)}.flexibility-module-host .flex-error{color:var(--flex-danger);min-height:1.2em;font-size:.88rem}.flexibility-module-host .flex-title{margin:4px 0 6px;font-size:1.3rem}.flexibility-module-host .flex-subtitle{margin:18px 0 5px;font-size:1.05rem}.flexibility-module-host .flex-list{display:grid;gap:8px}.flexibility-module-host .flex-choice{text-align:left;width:100%}.flexibility-module-host .flex-badge{display:inline-block;border:1px solid var(--flex-line);border-radius:999px;padding:2px 8px;font-size:.78rem;margin-right:4px}.flexibility-module-host .flex-pb{border-color:var(--flex-accent);color:var(--flex-accent)}.flexibility-module-host .flex-measure{font-size:1.35rem;font-weight:800}.flexibility-module-host .flex-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.flexibility-module-host .flex-actions>*{flex:1 1 120px}.flexibility-module-host .flex-timer{text-align:center;font-variant-numeric:tabular-nums;font-size:2.4rem;font-weight:850;padding:14px}.flexibility-module-host .flex-progress{height:9px;border-radius:99px;background:var(--flex-bg);overflow:hidden}.flexibility-module-host .flex-progress>span{display:block;height:100%;background:var(--flex-accent);width:0}.flexibility-module-host a{color:var(--flex-accent)}.flexibility-module-host hr{border:0;border-top:1px solid var(--flex-line);margin:16px 0}.flexibility-module-host ul{padding-left:20px}.flexibility-module-host .flex-status-completed{color:var(--flex-accent)}.flexibility-module-host .flex-status-skipped,.flexibility-module-host .flex-status-partial{color:var(--flex-warn)}
+.flexibility-module-host *{box-sizing:border-box}.flexibility-module-host .flex-wrap{width:min(100%,390px);margin:0 auto;padding:14px;line-height:1.45}.flexibility-module-host .flex-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;position:sticky;top:0;z-index:2;background:var(--flex-bg);padding:4px 0 10px}.flexibility-module-host button,.flexibility-module-host input,.flexibility-module-host select,.flexibility-module-host textarea{font:inherit}.flexibility-module-host button{min-height:44px;border:1px solid var(--flex-line);border-radius:12px;background:var(--flex-card2);color:var(--flex-text);padding:9px 12px;cursor:pointer}.flexibility-module-host button:hover{border-color:var(--flex-accent)}.flexibility-module-host button:focus-visible,.flexibility-module-host input:focus-visible,.flexibility-module-host select:focus-visible,.flexibility-module-host textarea:focus-visible{outline:3px solid color-mix(in srgb,var(--flex-accent) 55%,transparent);outline-offset:2px}.flexibility-module-host button[disabled]{opacity:.45;cursor:not-allowed}.flexibility-module-host .flex-tabs button[aria-selected=true],.flexibility-module-host .flex-primary{background:var(--flex-accent);border-color:var(--flex-accent);color:#07130e;font-weight:750}.flexibility-module-host .flex-card{background:var(--flex-card);border:1px solid var(--flex-line);border-radius:16px;padding:14px;margin:10px 0}.flexibility-module-host .flex-grid{display:grid;gap:10px}.flexibility-module-host .flex-two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.flexibility-module-host .flex-field{display:grid;gap:5px}.flexibility-module-host .flex-field>span,.flexibility-module-host legend{font-weight:700}.flexibility-module-host input[type=number],.flexibility-module-host select,.flexibility-module-host textarea{width:100%;min-height:44px;border:1px solid var(--flex-line);border-radius:10px;background:var(--flex-bg);color:var(--flex-text);padding:9px}.flexibility-module-host textarea{min-height:82px;resize:vertical}.flexibility-module-host fieldset{border:0;padding:0;margin:0}.flexibility-module-host .flex-check{display:flex;align-items:flex-start;gap:9px;padding:9px 0}.flexibility-module-host .flex-check input{width:22px;height:22px;flex:0 0 auto}.flexibility-module-host .flex-muted{color:var(--flex-muted);font-size:.92rem}.flexibility-module-host .flex-warning{color:var(--flex-warn)}.flexibility-module-host .flex-danger{color:var(--flex-danger)}.flexibility-module-host .flex-error{color:var(--flex-danger);min-height:1.2em;font-size:.88rem}.flexibility-module-host .flex-title{margin:4px 0 6px;font-size:1.3rem}.flexibility-module-host .flex-subtitle{margin:18px 0 5px;font-size:1.05rem}.flexibility-module-host .flex-list{display:grid;gap:8px}.flexibility-module-host .flex-choice{text-align:left;width:100%}.flexibility-module-host .flex-badge{display:inline-block;border:1px solid var(--flex-line);border-radius:999px;padding:2px 8px;font-size:.78rem;margin-right:4px}.flexibility-module-host .flex-pb{border-color:var(--flex-accent);color:var(--flex-accent)}.flexibility-module-host .flex-measure{font-size:1.35rem;font-weight:800}.flexibility-module-host .flex-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.flexibility-module-host .flex-actions>*{flex:1 1 120px}.flexibility-module-host .flex-timer{text-align:center;font-variant-numeric:tabular-nums;font-size:2.4rem;font-weight:850;padding:14px}.flexibility-module-host .flex-progress{height:9px;border-radius:99px;background:var(--flex-bg);overflow:hidden}.flexibility-module-host .flex-progress>span{display:block;height:100%;background:var(--flex-accent);width:0}.flexibility-module-host a{color:var(--flex-accent)}.flexibility-module-host .flex-card a{display:inline-block;min-height:44px;padding:11px 0}.flexibility-module-host .flex-delete{min-height:36px;padding:6px 10px;font-size:.86rem}.flexibility-module-host .flex-sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.flexibility-module-host hr{border:0;border-top:1px solid var(--flex-line);margin:16px 0}.flexibility-module-host ul{padding-left:20px}.flexibility-module-host .flex-status-completed{color:var(--flex-accent)}.flexibility-module-host .flex-status-skipped,.flexibility-module-host .flex-status-partial{color:var(--flex-warn)}
 @media(max-width:350px){.flexibility-module-host .flex-two{grid-template-columns:1fr}.flexibility-module-host .flex-wrap{padding:10px}.flexibility-module-host .flex-tabs button{padding:7px 4px;font-size:.9rem}}
 `;
 
@@ -499,6 +585,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
   const notify = typeof toast === 'function' ? toast : () => {};
 
   const trainingState = {
+    recordId: null,
     routineId: null,
     status: 'idle',
     stepIndex: 0,
@@ -518,11 +605,96 @@ export function createFlexibility({ host, store, save, toast } = {}) {
 
   let root = null;
   let content = null;
+  let liveRegion = null;
   let openFlag = false;
   let activeTab = 'benchmark';
   let visibilityAttached = false;
+  let pendingDraft = null;
+  let lastDraftWriteAt = 0;
+  const tabPanelId = `flex-panel-${Math.random().toString(36).slice(2, 9)}`;
+  const tabIdPrefix = `flex-tab-${Math.random().toString(36).slice(2, 9)}`;
 
   const performanceNow = () => globalThis.performance?.now?.() ?? Date.now();
+
+  function announce(message) {
+    if (!liveRegion) return;
+    liveRegion.textContent = '';
+    globalThis.setTimeout?.(() => { if (liveRegion) liveRegion.textContent = message; }, 0);
+  }
+
+  function clearTrainingDraft() {
+    pendingDraft = null;
+    lastDraftWriteAt = 0;
+    try { globalThis.localStorage?.removeItem(FLEXIBILITY_TRAINING_DRAFT_KEY); } catch { /* storage can be unavailable */ }
+  }
+
+  function readTrainingDraft() {
+    try {
+      const serialized = globalThis.localStorage?.getItem(FLEXIBILITY_TRAINING_DRAFT_KEY);
+      if (!serialized) return null;
+      const checked = validateTrainingDraft(JSON.parse(serialized));
+      if (checked.ok) return checked.value;
+      globalThis.localStorage?.removeItem(FLEXIBILITY_TRAINING_DRAFT_KEY);
+    } catch { /* malformed or unavailable storage is ignored */ }
+    return null;
+  }
+
+  function stateDraftInput() {
+    const steps = trainingState.steps.map((step, index) => {
+      let completedSeconds = Number(step.completedSeconds) || 0;
+      let status = step.status;
+      if (index === trainingState.stepIndex && trainingState.status !== 'finished') {
+        completedSeconds = round(currentElapsedMs() / 1000, 1);
+        if (step.type !== 'manual' && completedSeconds > 0 && status === 'not_started') status = 'partial';
+      }
+      return { id: step.id, type: step.type, plannedSeconds: step.plannedSeconds, completedSeconds, status };
+    });
+    return {
+      recordId: trainingState.recordId,
+      routineId: trainingState.routineId,
+      config: { ...trainingState.config },
+      steps,
+      stepIndex: trainingState.stepIndex,
+      warmupConfirmed: trainingState.warmupConfirmed,
+      startedAt: trainingState.sessionStartedAt,
+      notes: trainingState.notes,
+    };
+  }
+
+  function persistTrainingDraft(force = false) {
+    if (!trainingState.routineId || ['idle', 'stopped'].includes(trainingState.status)) return;
+    const now = Date.now();
+    if (!force && trainingState.status === 'running' && now - lastDraftWriteAt < 2000) return;
+    const serialized = serializeTrainingDraft(stateDraftInput(), now);
+    if (!serialized.ok) return;
+    try {
+      globalThis.localStorage?.setItem(FLEXIBILITY_TRAINING_DRAFT_KEY, JSON.stringify(serialized.value));
+      lastDraftWriteAt = now;
+    } catch { /* storage failure must not interrupt a timer */ }
+  }
+
+  function restoreTrainingDraft(draft) {
+    Object.assign(trainingState, {
+      recordId: draft.recordId,
+      routineId: draft.routineId,
+      status: draft.stepIndex >= draft.steps.length ? 'finished' : 'paused',
+      stepIndex: draft.stepIndex,
+      steps: draft.steps.map(step => ({ ...step })),
+      config: { ...draft.config },
+      warmupConfirmed: true,
+      sessionStartedAt: draft.startedAt,
+      runningSince: null,
+      elapsedBeforeRunMs: draft.stepIndex < draft.steps.length ? (Number(draft.steps[draft.stepIndex]?.completedSeconds) || 0) * 1000 : 0,
+      frameHandle: null,
+      frameKind: null,
+      saved: false,
+      saving: false,
+      hiddenPaused: false,
+      notes: draft.notes || '',
+    });
+    pendingDraft = null;
+    persistTrainingDraft(true);
+  }
 
   function cancelFrame() {
     if (trainingState.frameHandle == null) return;
@@ -557,10 +729,13 @@ export function createFlexibility({ host, store, save, toast } = {}) {
   function pauseTimer(reason = 'user') {
     if (trainingState.status !== 'running') return;
     commitElapsed();
+    syncCurrentElapsed();
     cancelFrame();
     trainingState.status = 'paused';
     trainingState.hiddenPaused = reason === 'hidden' || reason === 'close';
+    persistTrainingDraft(true);
     updateTimerDisplay();
+    announce('타이머가 일시정지되었습니다.');
   }
 
   function timerTick() {
@@ -572,12 +747,16 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       commitElapsed();
       trainingState.elapsedBeforeRunMs = Math.max(plannedMs, trainingState.elapsedBeforeRunMs);
       trainingState.status = 'awaiting-confirm';
+      syncCurrentElapsed();
       cancelFrame();
+      persistTrainingDraft(true);
       updateTimerDisplay();
       renderTrainingControls();
+      announce(step.type === 'rest' ? '휴식 시간이 끝났어요.' : '단계 시간이 끝났어요.');
       return;
     }
     updateTimerDisplay();
+    persistTrainingDraft();
     scheduleTick();
   }
 
@@ -586,12 +765,18 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       pauseTimer('hidden');
       notify('화면이 숨겨져 타이머를 일시정지했어요.');
       renderTrainingControls();
-    }
+    } else if (document.hidden) persistTrainingDraft(true);
+  }
+
+  function pageHide() {
+    if (trainingState.status === 'running') pauseTimer('hidden');
+    else persistTrainingDraft(true);
   }
 
   function attachVisibility() {
     if (!visibilityAttached) {
       document.addEventListener('visibilitychange', visibilityChange);
+      globalThis.addEventListener?.('pagehide', pageHide);
       visibilityAttached = true;
     }
   }
@@ -599,6 +784,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
   function detachVisibility() {
     if (visibilityAttached) {
       document.removeEventListener('visibilitychange', visibilityChange);
+      globalThis.removeEventListener?.('pagehide', pageHide);
       visibilityAttached = false;
     }
   }
@@ -610,25 +796,54 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     root = el('div', 'flex-wrap');
     const tabs = el('nav', 'flex-tabs');
     tabs.setAttribute('aria-label', '유연성 메뉴');
+    tabs.setAttribute('role', 'tablist');
     const tabItems = [['benchmark', '측정'], ['training', '짧은 훈련'], ['logs', '기록']];
     for (const [id, label] of tabItems) {
       const button = el('button', '', label);
       button.type = 'button';
+      button.id = `${tabIdPrefix}-${id}`;
       button.dataset.flexTab = id;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-controls', tabPanelId);
       button.setAttribute('aria-selected', String(activeTab === id));
+      button.tabIndex = activeTab === id ? 0 : -1;
       button.addEventListener('click', () => setTab(id));
+      button.addEventListener('keydown', event => {
+        const buttons = [...tabs.querySelectorAll('[role="tab"]')];
+        const index = buttons.indexOf(button);
+        let target = null;
+        if (event.key === 'ArrowRight') target = buttons[(index + 1) % buttons.length];
+        else if (event.key === 'ArrowLeft') target = buttons[(index - 1 + buttons.length) % buttons.length];
+        else if (event.key === 'Home') target = buttons[0];
+        else if (event.key === 'End') target = buttons[buttons.length - 1];
+        if (!target) return;
+        event.preventDefault();
+        setTab(target.dataset.flexTab);
+        target.focus();
+      });
       tabs.append(button);
     }
     content = el('section');
-    content.setAttribute('aria-label', '유연성 콘텐츠');
-    root.append(tabs, content);
+    content.id = tabPanelId;
+    content.setAttribute('role', 'tabpanel');
+    liveRegion = el('div', 'flex-sr-only');
+    liveRegion.setAttribute('aria-live', 'polite');
+    liveRegion.setAttribute('aria-atomic', 'true');
+    root.append(tabs, content, liveRegion);
     host.append(root);
   }
 
   function setTab(tab) {
-    activeTab = ['benchmark', 'training', 'logs'].includes(tab) ? tab : 'benchmark';
+    const nextTab = ['benchmark', 'training', 'logs'].includes(tab) ? tab : 'benchmark';
+    if (activeTab === 'training' && nextTab !== 'training' && trainingState.status === 'running') pauseTimer('tab');
+    activeTab = nextTab;
     if (!root) return;
-    root.querySelectorAll('[data-flex-tab]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.flexTab === activeTab)));
+    root.querySelectorAll('[data-flex-tab]').forEach(button => {
+      const selected = button.dataset.flexTab === activeTab;
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    content.setAttribute('aria-labelledby', `${tabIdPrefix}-${activeTab}`);
     if (activeTab === 'benchmark') renderBenchmarkChooser();
     else if (activeTab === 'training') renderTrainingChooser();
     else renderHistory(content, { includeTraining: true });
@@ -752,6 +967,25 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     const actions = el('div', 'flex-actions'); actions.append(again, logs); content.append(actions);
   }
 
+  async function savePendingDraftAsPartial(draft, error, button) {
+    const result = trainingRecordFromDraft(draft);
+    if (!result.ok) { error.textContent = Object.values(result.errors)[0] || '저장할 훈련 내용이 없습니다.'; return; }
+    button.disabled = true;
+    store.flexibilityTraining.push(result.value);
+    try {
+      await Promise.resolve(persist());
+      clearTrainingDraft();
+      resetTrainingState(false);
+      notify('부분 훈련 기록을 저장했어요.');
+      renderTrainingChooser();
+    } catch (saveError) {
+      const index = store.flexibilityTraining.findIndex(item => item.id === result.value.id);
+      if (index >= 0) store.flexibilityTraining.splice(index, 1);
+      button.disabled = false;
+      error.textContent = `저장하지 못했습니다: ${String(saveError?.message || saveError)}`;
+    }
+  }
+
   function renderTrainingChooser() {
     if (['running', 'paused', 'awaiting-confirm', 'ready', 'stopped', 'finished'].includes(trainingState.status) && trainingState.routineId) {
       renderTrainingSession();
@@ -760,10 +994,20 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     content.replaceChildren();
     content.append(el('h2', 'flex-title', '짧은 유연성 훈련'));
     content.append(el('p', 'flex-muted', '처음에는 주 2~3일 정도의 보수적인 템플릿으로 시작하세요. 고중량 Jefferson curl, oversplit, 반동, 고강도 PNF는 이 모듈에서 처방하지 않습니다.'));
+    if (pendingDraft) {
+      const draftCard = el('section', 'flex-card');
+      draftCard.append(el('h3', '', '진행 중이던 훈련이 있어요'), el('p', 'flex-muted', `${ROUTINES[pendingDraft.routineId]?.name || pendingDraft.routineId} · ${formatDate(pendingDraft.startedAt)}`));
+      const error = el('div', 'flex-error');
+      const actions = el('div', 'flex-actions');
+      const resume = el('button', 'flex-primary', '이어서 하기'); resume.type = 'button'; resume.addEventListener('click', () => { restoreTrainingDraft(pendingDraft); renderTrainingSession(); });
+      const discard = el('button', '', '버리기'); discard.type = 'button'; discard.addEventListener('click', () => { clearTrainingDraft(); renderTrainingChooser(); });
+      const partial = el('button', '', '부분 기록으로 저장'); partial.type = 'button'; partial.addEventListener('click', () => savePendingDraftAsPartial(pendingDraft, error, partial));
+      actions.append(resume, discard, partial); draftCard.append(error, actions); content.append(draftCard);
+    }
     for (const [id, routine] of Object.entries(ROUTINES)) {
       const card = el('section', 'flex-card');
       card.append(el('h3', '', routine.name), el('span', 'flex-badge', routine.badge), el('p', 'flex-muted', routine.summary));
-      const button = el('button', 'flex-primary', '이 루틴 준비'); button.type = 'button'; button.addEventListener('click', () => renderTrainingSetup(id));
+      const button = el('button', 'flex-primary', '이 루틴 준비'); button.type = 'button'; button.addEventListener('click', () => { clearTrainingDraft(); renderTrainingSetup(id); });
       card.append(button); content.append(card);
     }
     const stop = el('div', 'flex-card flex-warning', '날카로운 통증, 관절 통증, 저림이 있으면 즉시 중단하세요. 편안한 범위만 사용합니다.');
@@ -774,6 +1018,8 @@ export function createFlexibility({ host, store, save, toast } = {}) {
   function renderTrainingSetup(routineId) {
     const routine = ROUTINES[routineId];
     if (!routine) return renderTrainingChooser();
+    clearTrainingDraft();
+    resetTrainingState(false);
     content.replaceChildren();
     const back = el('button', '', '루틴 목록으로 돌아가기'); back.type = 'button'; back.addEventListener('click', renderTrainingChooser);
     content.append(back, el('h2', 'flex-title', routine.name), el('span', 'flex-badge', routine.badge), el('p', 'flex-muted', routine.summary));
@@ -801,21 +1047,24 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       if (!warmInput.checked) { error.textContent = '먼저 5~10분 워밍업을 완료하고 체크해 주세요.'; return; }
       if (!Number.isFinite(workSeconds) || workSeconds < 10 || workSeconds > 90 || !Number.isFinite(restSeconds) || restSeconds < 5 || restSeconds > 60 || !Number.isInteger(setCount) || setCount < 1 || setCount > 4) { error.textContent = '시간과 세트 범위를 확인해 주세요.'; return; }
       resetTrainingState();
+      trainingState.recordId = makeId('training');
       trainingState.routineId = routineId;
       trainingState.status = 'ready';
       trainingState.warmupConfirmed = true;
       trainingState.sessionStartedAt = new Date().toISOString();
       trainingState.config = { workSeconds, restSeconds, sets: setCount };
       trainingState.steps = buildTrainingSteps(routineId, workSeconds, restSeconds, setCount);
+      persistTrainingDraft(true);
       renderTrainingSession();
     });
     content.append(form);
   }
 
-  function resetTrainingState() {
+  function resetTrainingState(clearDraft = true) {
     cancelFrame();
+    if (clearDraft) clearTrainingDraft();
     Object.assign(trainingState, {
-      routineId: null, status: 'idle', stepIndex: 0, steps: [], config: { workSeconds: 30, restSeconds: 20, sets: 2 }, warmupConfirmed: false,
+      recordId: null, routineId: null, status: 'idle', stepIndex: 0, steps: [], config: { workSeconds: 30, restSeconds: 20, sets: 2 }, warmupConfirmed: false,
       sessionStartedAt: null, runningSince: null, elapsedBeforeRunMs: 0, frameHandle: null, frameKind: null, saved: false, saving: false, hiddenPaused: false, notes: '',
     });
   }
@@ -841,8 +1090,10 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     trainingState.status = 'running';
     trainingState.runningSince = performanceNow();
     trainingState.hiddenPaused = false;
+    persistTrainingDraft(true);
     scheduleTick();
     renderTrainingControls();
+    announce(step.type === 'rest' ? '휴식을 시작했어요.' : trainingState.elapsedBeforeRunMs > 0 ? '타이머를 다시 시작했어요.' : '타이머를 시작했어요.');
   }
 
   function resetCurrentStep() {
@@ -851,6 +1102,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     const step = currentStep();
     if (step) { step.completedSeconds = 0; step.status = 'not_started'; }
     trainingState.status = 'ready';
+    persistTrainingDraft(true);
     updateTimerDisplay();
     renderTrainingControls();
   }
@@ -868,6 +1120,8 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     trainingState.runningSince = null;
     if (trainingState.stepIndex >= trainingState.steps.length) trainingState.status = 'finished';
     else trainingState.status = 'ready';
+    persistTrainingDraft(true);
+    announce(status === 'completed' ? '단계를 완료했어요.' : '단계를 건너뛰었어요.');
     renderTrainingSession();
   }
 
@@ -895,6 +1149,8 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     }
     cancelFrame();
     trainingState.status = 'stopped';
+    clearTrainingDraft();
+    announce('훈련을 중단했어요.');
     renderTrainingSession();
   }
 
@@ -906,7 +1162,9 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     if (!timer || !bar || !step || step.type === 'manual') return;
     const elapsed = currentElapsedMs();
     const remaining = Math.max(0, step.plannedSeconds * 1000 - elapsed);
-    timer.textContent = `${Math.ceil(remaining / 1000)}초`;
+    const remainingSeconds = Math.ceil(remaining / 1000);
+    timer.textContent = `${remainingSeconds}초`;
+    timer.setAttribute('aria-label', `${step.label}, 남은 시간 ${remainingSeconds}초`);
     bar.style.width = `${Math.min(100, elapsed / (step.plannedSeconds * 1000) * 100)}%`;
   }
 
@@ -956,6 +1214,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       const progress = el('div', 'flex-progress'); const fill = el('span'); fill.dataset.trainingProgress = 'true'; progress.append(fill);
       card.append(timer, progress);
       if (trainingState.hiddenPaused) card.append(el('p', 'flex-warning', '화면이 숨겨져 자동 일시정지되었습니다. 계속/시작을 눌러 재개하세요.'));
+      else if (trainingState.status === 'paused') card.append(el('p', 'flex-warning', '타이머가 일시정지되었습니다. 계속/시작을 눌러 재개하세요.'));
       if (trainingState.status === 'awaiting-confirm') card.append(el('p', 'flex-warning', '시간이 끝났습니다. 실제로 유지했다면 이 단계 완료를 눌러 주세요.'));
     }
     const controls = el('div', 'flex-actions'); controls.dataset.trainingControls = 'true'; card.append(controls);
@@ -984,7 +1243,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     });
     const completion = steps.filter(step => step.type !== 'rest').length > 0 && steps.filter(step => step.type !== 'rest').every(step => step.status === 'completed');
     return {
-      id: makeId('training'), ts: trainingState.sessionStartedAt || new Date().toISOString(), routineId: trainingState.routineId,
+      id: trainingState.recordId || makeId('training'), ts: trainingState.sessionStartedAt || new Date().toISOString(), routineId: trainingState.routineId,
       warmupConfirmed: trainingState.warmupConfirmed, config: { ...trainingState.config }, completion, steps, notes: trainingState.notes,
     };
   }
@@ -1005,7 +1264,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       list.append(el('div', `flex-muted flex-status-${step.status}`, `${step.label} · ${statusLabel}${step.completedSeconds ? ` · ${round(step.completedSeconds, 1)}초` : ''}`));
     }
     card.append(list);
-    const noteLabel = el('label', 'flex-field'); noteLabel.append(el('span', '', '훈련 메모 (선택)')); const notes = document.createElement('textarea'); notes.maxLength = NOTE_LIMIT; notes.value = trainingState.notes; notes.addEventListener('input', () => { trainingState.notes = notes.value; }); noteLabel.append(notes); card.append(noteLabel);
+    const noteLabel = el('label', 'flex-field'); noteLabel.append(el('span', '', '훈련 메모 (선택)')); const notes = document.createElement('textarea'); notes.maxLength = NOTE_LIMIT; notes.value = trainingState.notes; notes.addEventListener('input', () => { trainingState.notes = notes.value; persistTrainingDraft(true); }); noteLabel.append(notes); card.append(noteLabel);
     const error = el('div', 'flex-error'); card.append(error);
     const saveButton = el('button', 'flex-primary', trainingState.saved ? '저장됨' : trainingState.saving ? '저장 중…' : '훈련 기록 저장'); saveButton.type = 'button'; saveButton.disabled = trainingState.saved || trainingState.saving || !validation.ok;
     saveButton.addEventListener('click', async () => {
@@ -1016,7 +1275,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       store.flexibilityTraining.push(fresh.value);
       try {
         await Promise.resolve(persist());
-        trainingState.saved = true; trainingState.saving = false; saveButton.textContent = '저장됨'; notify('훈련 기록을 저장했어요.');
+        trainingState.saved = true; trainingState.saving = false; saveButton.textContent = '저장됨'; clearTrainingDraft(); notify('훈련 기록을 저장했어요.');
       } catch (saveError) {
         const index = store.flexibilityTraining.findIndex(item => item.id === fresh.value.id);
         if (index >= 0) store.flexibilityTraining.splice(index, 1);
@@ -1028,6 +1287,22 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     const newTraining = el('button', '', '새 루틴'); newTraining.type = 'button'; newTraining.addEventListener('click', () => { resetTrainingState(); renderTrainingChooser(); });
     const logs = el('button', '', '기록 보기'); logs.type = 'button'; logs.addEventListener('click', () => setTab('logs'));
     actions.append(newTraining, logs); content.append(actions);
+  }
+
+  async function deleteHistoryRecord(collection, record, rerender) {
+    if (globalThis.confirm?.('이 기록을 삭제할까요?') !== true) return;
+    let index = collection.indexOf(record);
+    if (index < 0 && record?.id) index = collection.findIndex(item => item?.id === record.id);
+    if (index < 0) return;
+    const [removed] = collection.splice(index, 1);
+    try {
+      await Promise.resolve(persist());
+      notify('기록을 삭제했어요.');
+    } catch (error) {
+      collection.splice(index, 0, removed);
+      notify(`삭제하지 못했습니다: ${String(error?.message || error)}`);
+    }
+    rerender();
   }
 
   function renderHistory(element, options = {}) {
@@ -1062,6 +1337,8 @@ export function createFlexibility({ host, store, save, toast } = {}) {
         note.textContent = record.notes;
         card.append(note);
       }
+      const deleteButton = el('button', 'flex-delete', '삭제'); deleteButton.type = 'button'; deleteButton.setAttribute('aria-label', `${config?.label || record.kind} 기록 삭제`); deleteButton.addEventListener('click', () => deleteHistoryRecord(store.flexibility, record, () => renderHistory(element, options)));
+      card.append(deleteButton);
       wrap.append(card);
     }
 
@@ -1088,15 +1365,20 @@ export function createFlexibility({ host, store, save, toast } = {}) {
         const skipped = Array.isArray(record.steps) ? record.steps.filter(step => step.status === 'skipped').length : 0;
         if (skipped) card.append(el('p', 'flex-warning', `건너뜀 ${skipped}단계`));
         if (record.notes) { const note = el('p', 'flex-muted'); note.textContent = record.notes; card.append(note); }
+        const deleteButton = el('button', 'flex-delete', '삭제'); deleteButton.type = 'button'; deleteButton.setAttribute('aria-label', `${record.routineName || ROUTINES[record.routineId]?.name || record.routineId} 훈련 기록 삭제`); deleteButton.addEventListener('click', () => deleteHistoryRecord(store.flexibilityTraining, record, () => renderHistory(element, options)));
+        card.append(deleteButton);
         wrap.append(card);
       }
     }
     return element;
   }
 
-  function open(initial = 'benchmark') {
+  function open(initial) {
     openFlag = true;
-    activeTab = ['benchmark', 'training', 'logs'].includes(initial) ? initial : 'benchmark';
+    pendingDraft = readTrainingDraft();
+    const hasSession = !!trainingState.routineId && !['idle', 'stopped'].includes(trainingState.status);
+    const requested = arguments.length === 0 ? null : (['benchmark', 'training', 'logs'].includes(initial) ? initial : 'benchmark');
+    activeTab = requested || (hasSession || pendingDraft ? 'training' : 'benchmark');
     attachVisibility();
     renderShell();
     setTab(activeTab);
@@ -1105,7 +1387,7 @@ export function createFlexibility({ host, store, save, toast } = {}) {
 
   function close() {
     if (trainingState.status === 'running') pauseTimer('close');
-    else cancelFrame();
+    else { persistTrainingDraft(true); cancelFrame(); }
     detachVisibility();
     openFlag = false;
     host.replaceChildren();
@@ -1118,6 +1400,9 @@ export function createFlexibility({ host, store, save, toast } = {}) {
     renderHistory,
     validateBenchmark,
     validateTraining,
+    validateTrainingDraft,
+    serializeTrainingDraft,
+    trainingRecordFromDraft,
     comparison,
     compareBenchmark,
     trainingState,
@@ -1133,6 +1418,9 @@ export function createFlexibility({ host, store, save, toast } = {}) {
       trainingDraft,
       pauseTimer,
       currentElapsedMs,
+      readTrainingDraft,
+      persistTrainingDraft,
+      restoreTrainingDraft,
     },
   };
   return api;
@@ -1146,5 +1434,8 @@ export const __flexibilityTest = Object.freeze({
   metricLabel,
   metricText,
   roundedCondition,
+  validateTrainingDraft,
+  serializeTrainingDraft,
+  trainingRecordFromDraft,
   routines: ROUTINES,
 });
